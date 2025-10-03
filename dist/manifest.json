@@ -1,0 +1,36 @@
+{
+  "manifest_version": 3,
+  "name": "PromptHire insights",
+  "version": "2.0.0",
+  "description": "Transform LinkedIn profiles into actionable hiring insights with AI-powered intelligence.",
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "storage",
+    "management"
+  ],
+  "host_permissions": [
+    "https://www.linkedin.com/*",
+    "https://linkedin.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://www.linkedin.com/in/*", "https://linkedin.com/in/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "PromptHire insights - Smart Recruiting"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["popup.html", "popup.js"],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}
