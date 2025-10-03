@@ -2,7 +2,7 @@
 class LinkedInScraper {
   constructor() {
     this.profileData = {};
-    this.geminiApiKey = 'AIzaSyDd2IQcy6vAd5nHs1ZnTS3XSeVlUBB0dRM';
+    this.geminiApiKey = process.env.GEMINI_API_KEY || '';
   }
 
   // Wait for element to be present

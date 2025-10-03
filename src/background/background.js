@@ -79,8 +79,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 });
 
 // PromptHire API configuration
-const PROMPTHIRE_API_BASE = 'https://prompthire.org/api';
-const PROMPTHIRE_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoiNjhkZjdlYjNkNDQ1NWJlNTM5ZWVhMDdiIiwidXNlcl9uYW1lIjoicGhsaW5rZWRpbiIsInVzZXJfZW1haWwiOiJzaHJleWFzaEBwcm9tcHRoaXJlLmFpIiwib3JnX2lkcyI6WyI2NzNmNjU0NzExZmJlN2U1ZWQxZjM5MmUiXSwiZXhwIjoxNzYwNzczNDUyfQ.lCZEYRd0BNdLz8d96vwJHf7ZLEAUbAdSt6XOMgPGTnY';
+const PROMPTHIRE_API_BASE = process.env.PROMPTHIRE_API_BASE || 'https://prompthire.org/api';
+const PROMPTHIRE_TOKEN = process.env.PROMPTHIRE_TOKEN || '';
 
 // Function to fetch job openings
 async function fetchJobOpenings() {
