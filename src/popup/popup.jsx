@@ -336,7 +336,8 @@ const LinkedInScraperPopup = () => {
         current_company: editableData.current_company || 'N/A',
         linkedin_profile: editableData.linkedin_profile || null,
         current_location: editableData.current_location || 'N/A',
-        notable_company: [] // Required field - empty array
+        notable_company: [], // Required field - empty array
+        source: 'Linkedin' // Default source value
       };
 
       console.log('Sending applicant data:', applicantData);
