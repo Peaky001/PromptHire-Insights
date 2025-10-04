@@ -252,8 +252,9 @@ const LinkedInScraperPopup = () => {
     }
   };
 
-  const fetchJobOpenings = async () => {
-    await fetchJobOpeningsForOrg(selectedOrganization);
+  const fetchJobOpenings = async (organizationId = null) => {
+    const orgId = organizationId || selectedOrganization;
+    await fetchJobOpeningsForOrg(orgId);
   };
 
   const handleScrape = async () => {
@@ -337,7 +338,7 @@ const LinkedInScraperPopup = () => {
         linkedin_profile: editableData.linkedin_profile || null,
         current_location: editableData.current_location || 'N/A',
         notable_company: [], // Required field - empty array
-        source: 'Linkedin' // Default source value
+        resume_source: 'Linkedin' // Default source value
       };
 
       console.log('Sending applicant data:', applicantData);
@@ -784,7 +785,7 @@ const LinkedInScraperPopup = () => {
                     clearSelectedJobOpening();
                     // Fetch job openings for the selected organization
                     if (e.target.value) {
-                      fetchJobOpenings();
+                      fetchJobOpenings(e.target.value);
                     }
                   }}
                   className="org-select"

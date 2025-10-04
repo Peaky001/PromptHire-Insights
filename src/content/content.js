@@ -356,7 +356,8 @@ class LinkedInScraper {
       'Designer', 'Programmer', 'Administrator', 'Executive', 'Officer', 'Associate',
       'Assistant', 'Representative', 'Coordinator', 'Supervisor', 'Technician',
       'Developer at', 'Manager at', 'Engineer at', 'Analyst at', 'Specialist at',
-      'at ', '@ ', '|', '•', '–', '-', '—'
+      'Advisor', 'Speaker', 'Educator', 'Storyteller', 'Investor', 'Angel',
+      'at ', '@ ', '|', '•', '–', '-', '—', 'followers', 'impressions', 'ex-', 'ex '
     ];
     
     // Check for company indicators
@@ -374,6 +375,13 @@ class LinkedInScraper {
         return false;
       }
     }
+    
+    // If it contains multiple separators or looks like a description, it's not a company
+    const separatorCount = (text.match(/[|•–\-—]/g) || []).length;
+    if (separatorCount > 2) return false;
+    
+    // If it contains numbers with K+ or M+ (like "189K+followers"), it's not a company
+    if (text.match(/\d+[KM]\+/)) return false;
     
     // If it contains company indicators, it's likely a company
     for (const indicator of companyIndicators) {
@@ -707,7 +715,7 @@ class LinkedInScraper {
         console.log('First experience item found:', !!firstExperience);
         
         if (firstExperience) {
-          // Get company name - try multiple approaches
+          // Get company name - try multiple approaches with validation
           const companySelectors = [
             '.pv-entity__secondary-title',
             '.pv-entity__company-summary-info h3',
@@ -717,16 +725,25 @@ class LinkedInScraper {
             '.pv-entity__summary-info h3',
             '.pv-entity__summary-info .t-16.t-black.t-bold',
             '.pv-entity__summary-info-v2 .pv-entity__secondary-title',
-            '.pv-entity__summary-info-v2 h3'
+            '.pv-entity__summary-info-v2 h3',
+            // Additional modern selectors
+            '.t-14.t-normal.t-black--light',
+            '.pvs-entity__caption-wrapper .t-14.t-normal.t-black--light',
+            '.t-14.t-normal.t-black--light span[aria-hidden="true"]',
+            '.pvs-entity__sub-components .t-14.t-normal.t-black--light'
           ];
           
           for (const selector of companySelectors) {
-            currentCompany = this.extractText(selector, firstExperience);
-            console.log(`Trying company selector ${selector}:`, currentCompany);
-            if (currentCompany) break;
+            const text = this.extractText(selector, firstExperience);
+            console.log(`Trying company selector ${selector}:`, text);
+            if (text && this.isLikelyCompanyName(text)) {
+              currentCompany = text;
+              console.log(`Found valid company: ${currentCompany}`);
+              break;
+            }
           }
           
-          // Get job title/designation - try multiple approaches
+          // Get job title/designation - try multiple approaches with validation
           const designationSelectors = [
             '.pv-entity__summary-info h3',
             '.pv-entity__summary-info .t-16.t-black.t-bold',
@@ -734,13 +751,23 @@ class LinkedInScraper {
             '.t-16.t-black.t-bold',
             '.pv-entity__summary-info .pv-entity__summary-info h3',
             '.pv-entity__summary-info .pv-entity__summary-info .t-16.t-black.t-bold',
-            '.pv-entity__summary-info .pv-entity__summary-info-v2 h3'
+            '.pv-entity__summary-info .pv-entity__summary-info-v2 h3',
+            // Additional modern selectors
+            '.pvs-entity__path-node',
+            'div[data-field="experience_position_title"]',
+            '.mr1.t-bold span[aria-hidden="true"]',
+            '.hoverable-link-text.t-bold',
+            'a[data-field="experience_position_title"] span[aria-hidden="true"]'
           ];
           
           for (const selector of designationSelectors) {
-            currentDesignation = this.extractText(selector, firstExperience);
-            console.log(`Trying designation selector ${selector}:`, currentDesignation);
-            if (currentDesignation && currentDesignation !== currentCompany) break;
+            const text = this.extractText(selector, firstExperience);
+            console.log(`Trying designation selector ${selector}:`, text);
+            if (text && text !== currentCompany && this.isLikelyJobTitle(text)) {
+              currentDesignation = text;
+              console.log(`Found valid designation: ${currentDesignation}`);
+              break;
+            }
           }
         }
       }
@@ -750,8 +777,15 @@ class LinkedInScraper {
         // Look for patterns like "Job Title at Company" or "Job Title @ Company"
         const headlineMatch = headline.match(/(.+?)\s+(?:at|@)\s+(.+)/i);
         if (headlineMatch) {
-          currentDesignation = headlineMatch[1].trim();
-          currentCompany = headlineMatch[2].trim();
+          const potentialDesignation = headlineMatch[1].trim();
+          const potentialCompany = headlineMatch[2].trim();
+          
+          // Only use if both look valid
+          if (this.isLikelyJobTitle(potentialDesignation) && this.isLikelyCompanyName(potentialCompany)) {
+            currentDesignation = potentialDesignation;
+            currentCompany = potentialCompany;
+            console.log(`Fallback: Found company from headline: ${currentCompany}`);
+          }
         }
       }
 
