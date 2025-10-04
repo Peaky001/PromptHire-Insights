@@ -12,12 +12,18 @@ const LinkedInScraperPopup = () => {
   const [jobOpenings, setJobOpenings] = useState([]);
   const [selectedJobOpening, setSelectedJobOpening] = useState('');
   const [isLoadingJobs, setIsLoadingJobs] = useState(false);
+  const [organizations, setOrganizations] = useState([]);
+  const [selectedOrganization, setSelectedOrganization] = useState('');
+  const [isLoadingOrganizations, setIsLoadingOrganizations] = useState(false);
+  const [rateLimitStatus, setRateLimitStatus] = useState(null);
+  const [cooldownTimer, setCooldownTimer] = useState(null);
+  
   
   // Editable form fields
   const [editableData, setEditableData] = useState({
     candidate_name: '',
     candidate_email: 'default@example.com',
-    candidate_phone: '+1234567890',
+    candidate_phone: 'N/A',
     experience: '',
     skills: '',
     current_company: '',
@@ -38,18 +44,31 @@ const LinkedInScraperPopup = () => {
       }
     });
 
-    // Load saved API URL and selected job opening
-    chrome.storage.sync.get(['apiUrl', 'selectedJobOpening'], (result) => {
+    // Load saved API URL, selected job opening, and selected organization
+    chrome.storage.sync.get(['apiUrl', 'selectedJobOpening', 'selectedOrganization'], (result) => {
       if (result.apiUrl) {
         setApiUrl(result.apiUrl);
       }
       if (result.selectedJobOpening) {
         setSelectedJobOpening(result.selectedJobOpening);
       }
+      if (result.selectedOrganization) {
+        setSelectedOrganization(result.selectedOrganization);
+        // Fetch job openings after organization is loaded
+        fetchJobOpeningsForOrg(result.selectedOrganization);
+      }
     });
 
-    // Fetch job openings on component mount
-    fetchJobOpenings();
+    // Fetch organizations and rate limit status on component mount
+    fetchOrganizations();
+    fetchRateLimitStatus();
+
+    // Set up periodic rate limit status refresh
+    const interval = setInterval(() => {
+      fetchRateLimitStatus();
+    }, 10000); // Refresh every 10 seconds
+
+    return () => clearInterval(interval);
   }, []);
 
   // Function to save selected job opening to Chrome storage
@@ -66,14 +85,133 @@ const LinkedInScraperPopup = () => {
     });
   };
 
-  const fetchJobOpenings = async () => {
+  // Function to save selected organization to Chrome storage
+  const saveSelectedOrganization = (orgId) => {
+    chrome.storage.sync.set({ selectedOrganization: orgId }, () => {
+      console.log('Selected organization saved:', orgId);
+    });
+  };
+
+  // Function to clear selected organization from Chrome storage
+  const clearSelectedOrganization = () => {
+    chrome.storage.sync.remove(['selectedOrganization'], () => {
+      console.log('Selected organization cleared');
+    });
+  };
+
+  // Function to fetch rate limit status
+  const fetchRateLimitStatus = async () => {
+    try {
+      const response = await new Promise((resolve) => {
+        chrome.runtime.sendMessage(
+          { action: 'getRateLimitStatus' },
+          resolve
+        );
+      });
+
+      if (response.success) {
+        setRateLimitStatus(response.data);
+        
+        // If in cooldown, start timer
+        if (response.data.status === 'cooldown') {
+          startCooldownTimer(response.data.cooldownRemaining);
+        }
+      }
+    } catch (err) {
+      console.error('Error fetching rate limit status:', err);
+    }
+  };
+
+  // Function to start cooldown timer
+  const startCooldownTimer = (initialSeconds) => {
+    let seconds = initialSeconds;
+    
+    const timer = setInterval(() => {
+      seconds--;
+      setCooldownTimer(seconds);
+      
+      if (seconds <= 0) {
+        clearInterval(timer);
+        setCooldownTimer(null);
+        // Refresh rate limit status
+        fetchRateLimitStatus();
+      }
+    }, 1000);
+    
+    setCooldownTimer(seconds);
+  };
+
+  // Function to format time remaining
+  const formatTimeRemaining = (seconds) => {
+    const minutes = Math.floor(seconds / 60);
+    const remainingSeconds = seconds % 60;
+    return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
+  };
+
+  const fetchOrganizations = async () => {
+    setIsLoadingOrganizations(true);
+    setError('');
+    try {
+      const response = await new Promise((resolve) => {
+        chrome.runtime.sendMessage(
+          { 
+            action: 'fetchOrganizations'
+          },
+          resolve
+        );
+      });
+
+      console.log('Organizations response:', response);
+
+      if (response.success && response.data) {
+        // Handle different response structures
+        let orgsList = response.data;
+        if (Array.isArray(response.data)) {
+          orgsList = response.data;
+        } else if (response.data.items) {
+          // PromptHire API returns {total, page, page_size, items: [...]}
+          orgsList = response.data.items;
+        } else if (response.data.organizations) {
+          orgsList = response.data.organizations;
+        } else if (response.data.data) {
+          orgsList = response.data.data;
+        }
+        
+        console.log('Organizations list:', orgsList);
+        setOrganizations(orgsList);
+        
+        if (!orgsList || orgsList.length === 0) {
+          setError('No organizations available. The API might be having issues.');
+        }
+      } else {
+        const errorMsg = response.error || 'Failed to fetch organizations';
+        console.error('Failed to fetch organizations:', errorMsg);
+        setError(`Failed to fetch organizations: ${errorMsg}`);
+      }
+    } catch (err) {
+      console.error('Error fetching organizations:', err);
+      setError(`Error fetching organizations: ${err.message}`);
+    } finally {
+      setIsLoadingOrganizations(false);
+    }
+  };
+
+  const fetchJobOpeningsForOrg = async (organizationId) => {
+    if (!organizationId) {
+      setJobOpenings([]);
+      setSelectedJobOpening('');
+      clearSelectedJobOpening();
+      return;
+    }
+
     setIsLoadingJobs(true);
     setError('');
     try {
       const response = await new Promise((resolve) => {
         chrome.runtime.sendMessage(
           { 
-            action: 'fetchJobOpenings'
+            action: 'fetchJobOpenings',
+            organizationId: organizationId
           },
           resolve
         );
@@ -114,6 +252,10 @@ const LinkedInScraperPopup = () => {
     }
   };
 
+  const fetchJobOpenings = async () => {
+    await fetchJobOpeningsForOrg(selectedOrganization);
+  };
+
   const handleScrape = async () => {
     setIsLoading(true);
     setError('');
@@ -137,7 +279,7 @@ const LinkedInScraperPopup = () => {
         setEditableData({
           candidate_name: data.name || data.geminiExtracted?.name || data.basicInfo?.name || '',
           candidate_email: 'default@example.com', // Keep default
-          candidate_phone: '+1234567890', // Keep default
+          candidate_phone: 'N/A', // Default value
           experience: data.totalExperience || data.geminiExtracted?.totalExperience || data.basicInfo?.totalExperience || '',
           skills: Array.isArray(data.skills) ? data.skills.join(', ') : (data.geminiExtracted?.skills ? data.geminiExtracted.skills.join(', ') : ''),
           current_company: data.currentCompany || data.geminiExtracted?.currentCompany || data.basicInfo?.currentCompany || '',
@@ -146,8 +288,19 @@ const LinkedInScraperPopup = () => {
         });
         
         setSuccess('Profile scraped successfully!');
+        
+        // Refresh rate limit status after successful scraping
+        fetchRateLimitStatus();
       } else {
         setError(response.error || 'Failed to scrape profile');
+        
+        // If it's a rate limit error, update the rate limit status
+        if (response.rateLimit) {
+          setRateLimitStatus(response.rateLimit);
+          if (response.rateLimit.status === 'cooldown') {
+            startCooldownTimer(response.rateLimit.cooldownRemaining);
+          }
+        }
       }
     } catch (err) {
       setError('Error communicating with content script: ' + err.message);
@@ -203,9 +356,7 @@ const LinkedInScraperPopup = () => {
 
       if (response.success) {
         setSuccess('Applicant added successfully!');
-        // Clear selection after successful submission
-        setSelectedJobOpening('');
-        clearSelectedJobOpening();
+        // Keep job selection persistent until extension is closed
       } else {
         setError(response.error || 'Failed to add applicant');
       }
@@ -215,6 +366,51 @@ const LinkedInScraperPopup = () => {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  // Rate limit status display component
+  const RateLimitStatus = () => {
+    if (!rateLimitStatus) return null;
+
+    if (rateLimitStatus.status === 'cooldown') {
+      const timeRemaining = cooldownTimer !== null ? cooldownTimer : rateLimitStatus.cooldownRemaining;
+      return (
+        <div className="rate-limit-status cooldown">
+          <div className="status-icon">⏰</div>
+          <div className="status-content">
+            <div className="status-title">Rate Limit Exceeded</div>
+            <div className="status-message">
+              Please wait {formatTimeRemaining(timeRemaining)} before scraping again
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    if (rateLimitStatus.status === 'active') {
+      const windowRemaining = Math.max(0, Math.ceil(rateLimitStatus.windowRemaining / 60));
+      return (
+        <div className="rate-limit-status active">
+          <div className="status-icon">📊</div>
+          <div className="status-content">
+            <div className="status-title">Rate Limit Status</div>
+            <div className="status-message">
+              {rateLimitStatus.remaining} profiles remaining in next {windowRemaining} minutes
+            </div>
+            <div className="progress-bar">
+              <div 
+                className="progress-fill" 
+                style={{ 
+                  width: `${((rateLimitStatus.maxProfiles - rateLimitStatus.remaining) / rateLimitStatus.maxProfiles) * 100}%` 
+                }}
+              ></div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    return null;
   };
 
   const ProfileDataDisplay = ({ data }) => {
@@ -409,16 +605,23 @@ const LinkedInScraperPopup = () => {
         </div>
       ) : (
         <div className="content">
+          <RateLimitStatus />
+          
           <div className="section">
             <button 
               className="scrape-btn"
               onClick={handleScrape}
-              disabled={isLoading}
+              disabled={isLoading || (rateLimitStatus && rateLimitStatus.status === 'cooldown')}
             >
               {isLoading ? (
                 <>
                   <span className="spinner"></span>
                   Analyzing Profile...
+                </>
+              ) : rateLimitStatus && rateLimitStatus.status === 'cooldown' ? (
+                <>
+                  <span className="btn-icon">⏰</span>
+                  Rate Limited
                 </>
               ) : (
                 <>
@@ -462,14 +665,14 @@ const LinkedInScraperPopup = () => {
               </div>
 
               <div className="form-group">
-                <label htmlFor="candidate_phone">Phone (default)</label>
+                <label htmlFor="candidate_phone">Phone</label>
                 <input
                   type="tel"
                   id="candidate_phone"
                   value={editableData.candidate_phone}
                   readOnly
                   className="readonly-field"
-                  title="Phone is set to default value"
+                  title="Phone number is set to N/A by default"
                 />
               </div>
 
@@ -531,14 +734,86 @@ const LinkedInScraperPopup = () => {
           )}
 
           <div className="section">
+            <div className="org-section-header">
+              <label htmlFor="organization">Select Organization:</label>
+              <div className="org-buttons">
+                <button 
+                  className="refresh-btn"
+                  onClick={fetchOrganizations}
+                  disabled={isLoadingOrganizations}
+                  title="Refresh organizations"
+                >
+                  🔄 {isLoadingOrganizations ? 'Loading...' : 'Refresh'}
+                </button>
+                {selectedOrganization && (
+                  <button 
+                    className="clear-btn"
+                    onClick={() => {
+                      setSelectedOrganization('');
+                      clearSelectedOrganization();
+                      // Clear job openings when organization is cleared
+                      setJobOpenings([]);
+                      setSelectedJobOpening('');
+                      clearSelectedJobOpening();
+                    }}
+                    title="Clear organization selection"
+                  >
+                    ✕ Clear
+                  </button>
+                )}
+              </div>
+            </div>
+            {isLoadingOrganizations ? (
+              <div className="loading-orgs">
+                <span className="spinner-small"></span>
+                Loading organizations...
+              </div>
+            ) : (
+              <>
+                <select
+                  id="organization"
+                  value={selectedOrganization}
+                  onChange={(e) => {
+                    console.log('Selected organization:', e.target.value);
+                    setSelectedOrganization(e.target.value);
+                    saveSelectedOrganization(e.target.value);
+                    // Clear job openings when organization changes
+                    setJobOpenings([]);
+                    setSelectedJobOpening('');
+                    clearSelectedJobOpening();
+                    // Fetch job openings for the selected organization
+                    if (e.target.value) {
+                      fetchJobOpenings();
+                    }
+                  }}
+                  className="org-select"
+                  disabled={organizations.length === 0}
+                >
+                  <option value="">-- Select an Organization --</option>
+                  {organizations.map((org) => (
+                    <option key={org.id || org._id || org.org_id} value={org.id || org._id || org.org_id}>
+                      {org.organization_name || org.name || org.title || 'Untitled Organization'}
+                    </option>
+                  ))}
+                </select>
+                {organizations.length === 0 && (
+                  <div className="no-orgs-message">
+                    ⚠️ No organizations found. Click refresh or check API credentials.
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+
+          <div className="section">
             <div className="job-section-header">
               <label htmlFor="job-opening">Select Job Opening:</label>
               <div className="job-buttons">
                 <button 
                   className="refresh-btn"
                   onClick={fetchJobOpenings}
-                  disabled={isLoadingJobs}
-                  title="Refresh job openings"
+                  disabled={isLoadingJobs || !selectedOrganization}
+                  title={!selectedOrganization ? "Please select an organization first" : "Refresh job openings"}
                 >
                   🔄 {isLoadingJobs ? 'Loading...' : 'Refresh'}
                 </button>
@@ -556,7 +831,11 @@ const LinkedInScraperPopup = () => {
                 )}
               </div>
             </div>
-            {isLoadingJobs ? (
+            {!selectedOrganization ? (
+              <div className="no-org-selected-message">
+                ℹ️ Please select an organization first to view job openings.
+              </div>
+            ) : isLoadingJobs ? (
               <div className="loading-jobs">
                 <span className="spinner-small"></span>
                 Loading job openings...
@@ -585,7 +864,7 @@ const LinkedInScraperPopup = () => {
                 </select>
                 {jobOpenings.length === 0 && (
                   <div className="no-jobs-message">
-                    ⚠️ No job openings found. Click refresh or check API credentials.
+                    ⚠️ No job openings found for this organization. Click refresh or check API credentials.
                   </div>
                 )}
               </>
