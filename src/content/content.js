@@ -6,6 +6,8 @@ class LinkedInScraper {
       this.profileData = {};
       this.geminiApiKey = process.env.GEMINI_API_KEY || '';
       console.log('Gemini API key loaded:', this.geminiApiKey ? 'Yes' : 'No');
+      console.log('Gemini API key length:', this.geminiApiKey ? this.geminiApiKey.length : 0);
+      console.log('Gemini API key first 10 chars:', this.geminiApiKey ? this.geminiApiKey.substring(0, 10) : 'N/A');
       this.floatingIcon = null;
       console.log('About to initialize floating icon...');
       this.initFloatingIcon();
@@ -635,10 +637,18 @@ class LinkedInScraper {
   // Call Gemini API to enhance and validate scraped data
   async enhanceDataWithGemini(profileData) {
     console.log('Enhancing data with Gemini API...', profileData);
+    console.log('Gemini API key check:', {
+      hasKey: !!this.geminiApiKey,
+      keyLength: this.geminiApiKey ? this.geminiApiKey.length : 0,
+      keyStart: this.geminiApiKey ? this.geminiApiKey.substring(0, 10) : 'N/A'
+    });
     
     // Check if API key is valid
     if (!this.geminiApiKey || this.geminiApiKey.length < 10) {
-      console.error('Invalid Gemini API key');
+      console.error('Invalid Gemini API key:', {
+        hasKey: !!this.geminiApiKey,
+        keyLength: this.geminiApiKey ? this.geminiApiKey.length : 0
+      });
       return profileData;
     }
     
@@ -697,9 +707,9 @@ class LinkedInScraper {
 
       // Try different Gemini model endpoints
       const modelEndpoints = [
-        'gemini-1.5-flash',
-        'gemini-1.5-pro',
-        'gemini-pro'
+        'gemini-2.5-flash',
+        'gemini-2.0-flash',
+        'gemini-2.0-pro'
       ];
 
       let response = null;

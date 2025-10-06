@@ -41,7 +41,17 @@ module.exports = {
     }),
     new CopyWebpackPlugin({
       patterns: [
-        { from: 'manifest.json', to: 'manifest.json' },
+        { 
+          from: 'manifest.json', 
+          to: 'manifest.json',
+          transform: (content) => {
+            const manifest = JSON.parse(content.toString());
+            // Update paths to reference dist directory
+            manifest.background.service_worker = 'background.js';
+            manifest.content_scripts[0].js = ['content.js'];
+            return JSON.stringify(manifest, null, 2);
+          }
+        },
         { from: 'src/assets', to: 'assets', noErrorOnMissing: true }
       ]
     }),
