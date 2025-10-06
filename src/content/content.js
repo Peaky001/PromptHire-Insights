@@ -1,22 +1,36 @@
 // Content script for scraping LinkedIn profile data
 class LinkedInScraper {
   constructor() {
-    this.profileData = {};
-    this.geminiApiKey = process.env.GEMINI_API_KEY || '';
-    this.floatingIcon = null;
-    this.initFloatingIcon();
+    try {
+      console.log('LinkedInScraper constructor starting...');
+      this.profileData = {};
+      this.geminiApiKey = process.env.GEMINI_API_KEY || '';
+      console.log('Gemini API key loaded:', this.geminiApiKey ? 'Yes' : 'No');
+      this.floatingIcon = null;
+      console.log('About to initialize floating icon...');
+      this.initFloatingIcon();
+      console.log('LinkedInScraper constructor completed successfully');
+    } catch (error) {
+      console.error('Error in LinkedInScraper constructor:', error);
+      throw error;
+    }
   }
 
   // Initialize floating icon
   initFloatingIcon() {
+    console.log('Initializing floating icon for URL:', window.location.href);
     // Only show on LinkedIn profile pages
     if (window.location.href.includes('linkedin.com/in/')) {
+      console.log('LinkedIn profile page detected, creating floating icon');
       this.createFloatingIcon();
+    } else {
+      console.log('Not a LinkedIn profile page, skipping floating icon');
     }
   }
 
   // Create floating icon
   createFloatingIcon() {
+    console.log('Creating floating icon...');
     // Remove existing icon if any
     if (this.floatingIcon) {
       this.floatingIcon.remove();
@@ -24,6 +38,7 @@ class LinkedInScraper {
 
     // Get saved position or use default
     const savedPosition = this.getSavedPosition();
+    console.log('Using saved position:', savedPosition);
 
     // Create icon element
     this.floatingIcon = document.createElement('div');
@@ -168,6 +183,34 @@ class LinkedInScraper {
     this.floatingIcon.addEventListener('mouseleave', () => {
       this.floatingIcon.style.transform = 'scale(1)';
     });
+    
+    console.log('Floating icon created and added to page');
+  }
+
+  // Get saved position or return default
+  getSavedPosition() {
+    try {
+      // Try to get saved position from localStorage
+      const saved = localStorage.getItem('prompthire-icon-position');
+      if (saved) {
+        const position = JSON.parse(saved);
+        return { x: position.x || 20, y: position.y || 20 };
+      }
+    } catch (error) {
+      console.log('Could not load saved position:', error);
+    }
+    
+    // Return default position
+    return { x: 20, y: 20 };
+  }
+
+  // Save position to localStorage
+  savePosition(x, y) {
+    try {
+      localStorage.setItem('prompthire-icon-position', JSON.stringify({ x, y }));
+    } catch (error) {
+      console.log('Could not save position:', error);
+    }
   }
 
   // Open popup programmatically
@@ -1783,12 +1826,33 @@ class LinkedInScraper {
 }
 
 // Initialize scraper
-const scraper = new LinkedInScraper();
+let scraper;
+try {
+  console.log('Attempting to initialize LinkedInScraper...');
+  scraper = new LinkedInScraper();
+  console.log('LinkedIn scraper initialized successfully');
+} catch (error) {
+  console.error('Error initializing LinkedIn scraper:', error);
+  console.error('Error stack:', error.stack);
+  console.error('Error details:', {
+    name: error.name,
+    message: error.message,
+    cause: error.cause
+  });
+}
 
 
 // Listen for messages from popup
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  console.log('Content script received message:', request);
+  
   if (request.action === 'scrapeProfile') {
+    if (!scraper) {
+      console.error('Scraper not initialized');
+      sendResponse({ success: false, error: 'Scraper not initialized' });
+      return true;
+    }
+    
     scraper.scrapeProfile()
       .then(data => {
         sendResponse({ success: true, data });
@@ -1802,6 +1866,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     // Return true to indicate we'll send a response asynchronously
     return true;
   }
+  
+  return false;
 });
 
 console.log('LinkedIn scraper content script loaded');
+console.log('Content script is running on:', window.location.href);
+console.log('Content script ready to receive messages');

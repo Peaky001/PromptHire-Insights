@@ -198,22 +198,27 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     
     // Forward the message to the active tab's content script
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      console.log('Background: Found tabs:', tabs.length);
       if (tabs[0]) {
+        console.log('Background: Sending message to tab:', tabs[0].id, 'URL:', tabs[0].url);
         chrome.tabs.sendMessage(tabs[0].id, request, (response) => {
+          console.log('Background: Received response:', response);
           if (chrome.runtime.lastError) {
+            console.error('Background: Error communicating with content script:', chrome.runtime.lastError);
             sendResponse({ 
               success: false, 
               error: 'Content script not available. Please refresh the LinkedIn page.' 
             });
           } else {
             // If scraping was successful, increment the profile count
-            if (response.success) {
+            if (response && response.success) {
               incrementProfileCount();
             }
             sendResponse(response);
           }
         });
       } else {
+        console.log('Background: No active tab found');
         sendResponse({ 
           success: false, 
           error: 'No active tab found' 
