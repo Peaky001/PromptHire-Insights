@@ -3,6 +3,177 @@ class LinkedInScraper {
   constructor() {
     this.profileData = {};
     this.geminiApiKey = process.env.GEMINI_API_KEY || '';
+    this.floatingIcon = null;
+    this.initFloatingIcon();
+  }
+
+  // Initialize floating icon
+  initFloatingIcon() {
+    // Only show on LinkedIn profile pages
+    if (window.location.href.includes('linkedin.com/in/')) {
+      this.createFloatingIcon();
+    }
+  }
+
+  // Create floating icon
+  createFloatingIcon() {
+    // Remove existing icon if any
+    if (this.floatingIcon) {
+      this.floatingIcon.remove();
+    }
+
+    // Get saved position or use default
+    const savedPosition = this.getSavedPosition();
+
+    // Create icon element
+    this.floatingIcon = document.createElement('div');
+    this.floatingIcon.id = 'prompthire-floating-icon';
+    this.floatingIcon.innerHTML = `
+      <div class="prompthire-icon-container">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M12 2L13.09 8.26L20 9L13.09 9.74L12 16L10.91 9.74L4 9L10.91 8.26L12 2Z" fill="currentColor"/>
+          <path d="M19 15L19.5 17L21 17.5L19.5 18L19 20L18.5 18L17 17.5L18.5 17L19 15Z" fill="currentColor"/>
+          <path d="M5 15L5.5 17L7 17.5L5.5 18L5 20L4.5 18L3 17.5L4.5 17L5 15Z" fill="currentColor"/>
+        </svg>
+        <span class="prompthire-tooltip">PromptHire Insights</span>
+        <div class="prompthire-drag-handle">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M8 6H6V8H8V6Z" fill="currentColor"/>
+            <path d="M8 10H6V12H8V10Z" fill="currentColor"/>
+            <path d="M8 14H6V16H8V14Z" fill="currentColor"/>
+            <path d="M12 6H10V8H12V6Z" fill="currentColor"/>
+            <path d="M12 10H10V12H12V10Z" fill="currentColor"/>
+            <path d="M12 14H10V16H12V14Z" fill="currentColor"/>
+            <path d="M16 6H14V8H16V6Z" fill="currentColor"/>
+            <path d="M16 10H14V12H16V10Z" fill="currentColor"/>
+            <path d="M16 14H14V16H16V14Z" fill="currentColor"/>
+          </svg>
+        </div>
+      </div>
+    `;
+
+    // Set initial position
+    this.floatingIcon.style.left = savedPosition.x + 'px';
+    this.floatingIcon.style.top = savedPosition.y + 'px';
+
+    // Add styles
+    const style = document.createElement('style');
+    style.textContent = `
+      #prompthire-floating-icon {
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        z-index: 10000;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      }
+
+      #prompthire-floating-icon:hover {
+        transform: scale(1.1);
+      }
+
+      .prompthire-icon-container {
+        position: relative;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        border-radius: 50%;
+        width: 48px;
+        height: 48px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        transition: all 0.3s ease;
+      }
+
+      .prompthire-icon-container:hover {
+        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
+        transform: translateY(-2px);
+      }
+
+      .prompthire-icon-container svg {
+        color: white;
+        width: 24px;
+        height: 24px;
+      }
+
+      .prompthire-tooltip {
+        position: absolute;
+        right: 60px;
+        top: 50%;
+        transform: translateY(-50%);
+        background: rgba(0, 0, 0, 0.8);
+        color: white;
+        padding: 8px 12px;
+        border-radius: 6px;
+        font-size: 12px;
+        font-weight: 500;
+        white-space: nowrap;
+        opacity: 0;
+        visibility: hidden;
+        transition: all 0.3s ease;
+        pointer-events: none;
+      }
+
+      .prompthire-tooltip::after {
+        content: '';
+        position: absolute;
+        left: 100%;
+        top: 50%;
+        transform: translateY(-50%);
+        border: 5px solid transparent;
+        border-left-color: rgba(0, 0, 0, 0.8);
+      }
+
+      #prompthire-floating-icon:hover .prompthire-tooltip {
+        opacity: 1;
+        visibility: visible;
+      }
+
+      /* Responsive adjustments */
+      @media (max-width: 768px) {
+        #prompthire-floating-icon {
+          top: 10px;
+          right: 10px;
+        }
+        
+        .prompthire-icon-container {
+          width: 40px;
+          height: 40px;
+        }
+        
+        .prompthire-icon-container svg {
+          width: 20px;
+          height: 20px;
+        }
+      }
+    `;
+
+    // Add to page
+    document.head.appendChild(style);
+    document.body.appendChild(this.floatingIcon);
+
+    // Add click handler
+    this.floatingIcon.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this.openPopup();
+    });
+
+    // Add hover effects
+    this.floatingIcon.addEventListener('mouseenter', () => {
+      this.floatingIcon.style.transform = 'scale(1.05)';
+    });
+
+    this.floatingIcon.addEventListener('mouseleave', () => {
+      this.floatingIcon.style.transform = 'scale(1)';
+    });
+  }
+
+  // Open popup programmatically
+  openPopup() {
+    // Send message to background script to open popup
+    chrome.runtime.sendMessage({ action: 'openPopup' });
   }
 
   // Wait for element to be present

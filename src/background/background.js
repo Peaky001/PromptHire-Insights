@@ -23,6 +23,15 @@ chrome.storage.local.get(['rateLimitState'], (result) => {
   }
 });
 
+// Listen for messages from content script
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (request.action === 'openPopup') {
+    // Open the popup by clicking the extension icon
+    chrome.action.openPopup();
+    sendResponse({ success: true });
+  }
+});
+
 // Save rate limit state to storage
 function saveRateLimitState() {
   chrome.storage.local.set({ rateLimitState }, () => {
