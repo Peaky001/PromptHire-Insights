@@ -619,6 +619,110 @@ class LinkedInScraper {
     return `${roundedYears} yrs`;
   }
 
+  // Clean HTML by removing unnecessary elements and attributes
+  cleanHtmlForLLM(html) {
+    try {
+      // Create a temporary div to parse the HTML
+      const tempDiv = document.createElement('div');
+      tempDiv.innerHTML = html;
+      
+      // Remove header, footer, and navigation elements
+      const elementsToRemove = [
+        'header', 'footer', 'nav', 
+        '.global-nav', '.top-nav', '.bottom-nav',
+        '.header', '.footer', '.navigation',
+        '[role="banner"]', '[role="contentinfo"]', '[role="navigation"]',
+        '.ads', '.advertisement', '.promo',
+        '.cookie-banner', '.consent-banner',
+        '.sidebar', '.side-panel',
+        'script', 'style', 'link[rel="stylesheet"]',
+        'meta', 'title'
+      ];
+      
+      elementsToRemove.forEach(selector => {
+        const elements = tempDiv.querySelectorAll(selector);
+        elements.forEach(el => el.remove());
+      });
+      
+      // Remove all id and class attributes
+      const allElements = tempDiv.querySelectorAll('*');
+      allElements.forEach(el => {
+        el.removeAttribute('id');
+        el.removeAttribute('class');
+        el.removeAttribute('data-test-id');
+        el.removeAttribute('data-testid');
+        el.removeAttribute('data-qa');
+        el.removeAttribute('aria-label');
+        el.removeAttribute('aria-labelledby');
+        el.removeAttribute('aria-describedby');
+        el.removeAttribute('role');
+        el.removeAttribute('tabindex');
+        el.removeAttribute('aria-hidden');
+        // Keep href for links but clean other attributes
+        if (el.tagName !== 'A') {
+          el.removeAttribute('href');
+        }
+      });
+      
+      // Clean up empty elements
+      const emptyElements = tempDiv.querySelectorAll('*');
+      emptyElements.forEach(el => {
+        if (el.children.length === 0 && (!el.textContent || el.textContent.trim() === '')) {
+          el.remove();
+        }
+      });
+      
+      return tempDiv.innerHTML;
+    } catch (error) {
+      console.error('Error cleaning HTML:', error);
+      return html; // Return original if cleaning fails
+    }
+  }
+
+  // Extract full page HTML for LLM processing
+  extractFullPageHtml() {
+    try {
+      console.log('Extracting full page HTML for LLM processing...');
+      
+      // Get the main content area, excluding header/footer
+      const mainContentSelectors = [
+        'main',
+        '.application-outlet',
+        '.scaffold-layout__content',
+        '#main-content',
+        '.profile-content',
+        'body'
+      ];
+      
+      let mainContent = null;
+      for (const selector of mainContentSelectors) {
+        mainContent = document.querySelector(selector);
+        if (mainContent) {
+          console.log(`Found main content using selector: ${selector}`);
+          break;
+        }
+      }
+      
+      if (!mainContent) {
+        console.log('No main content found, using body');
+        mainContent = document.body;
+      }
+      
+      // Extract the HTML
+      const fullHtml = mainContent.outerHTML;
+      console.log('Extracted full page HTML, size:', fullHtml.length);
+      
+      // Clean the HTML
+      const cleanedHtml = this.cleanHtmlForLLM(fullHtml);
+      console.log('Cleaned HTML size:', cleanedHtml.length);
+      
+      return cleanedHtml;
+    } catch (error) {
+      console.error('Error extracting full page HTML:', error);
+      return '';
+    }
+  }
+
   // Extract start and end dates from text
   extractDatesFromText(text) {
     const dates = { start: null, end: null };
@@ -891,66 +995,44 @@ class LinkedInScraper {
     }
     
     try {
-      // Create a focused prompt with minimal data for faster processing
-      const experienceHtml = profileData.experienceRawHtml || '';
-      const basicInfo = profileData.basicInfo || {};
-      const experience = profileData.experience || [];
-      const education = profileData.education || [];
-      const skills = profileData.skills || [];
+      // Use full page HTML for comprehensive analysis
+      const fullPageHtml = profileData.fullPageHtml || '';
       
-      // Create minimal data payload for faster API response
-      const minimalData = {
-        basicInfo: {
-          name: basicInfo.name || basicInfo.fullName,
-          location: basicInfo.location,
-          profileLink: basicInfo.profileLink
-        },
-        experience: experience.slice(0, 5), // Limit to first 5 experiences
-        education: education.slice(0, 3), // Limit to first 3 education entries
-        skills: skills.slice(0, 20) // Limit to first 20 skills
-      };
+      if (!fullPageHtml) {
+        console.error('No full page HTML available for LLM processing');
+        return profileData;
+      }
       
-      const prompt = `You are a LinkedIn profile analyzer. Extract the following information from this profile data:
+      console.log('Using full page HTML for LLM processing, size:', fullPageHtml.length);
+      
+      const prompt = `You are a LinkedIn profile analyzer. Extract the following information from this cleaned LinkedIn profile HTML:
 
-      PROFILE DATA:
-      ${JSON.stringify(minimalData, null, 2)}
-
-      EXPERIENCE HTML (for accurate parsing):
-      ${experienceHtml}
+      LINKEDIN PROFILE HTML:
+      ${fullPageHtml}
 
       REQUIRED EXTRACTION:
-      1. NAME: Extract the person's full name
-      2. LOCATION: Extract the person's current location
-      3. PROFILE_LINK: Extract the LinkedIn profile URL
+      1. NAME: Extract the person's full name from the profile header
+      2. LOCATION: Extract the person's current location from the profile header
+      3. PROFILE_LINK: Extract the LinkedIn profile URL (current page URL)
       4. CURRENT COMPANY: Extract the company name from the most recent job/experience (the one with "Present" or current date)
       5. CURRENT DESIGNATION: Extract the job title/position from the most recent job/experience
       6. SKILLS: Extract all relevant skills mentioned in the profile (clean, no duplicates)
       7. TOTAL EXPERIENCE: Calculate total years of professional experience from all jobs (format as decimal like "4.8 yrs")
       8. EDUCATION_QUALIFICATION: Extract education details in the specified format
 
-      IMPORTANT RULES FOR EXPERIENCE PARSING:
-      - Use the EXPERIENCE HTML to accurately parse job durations and calculate total experience
+      IMPORTANT RULES FOR PARSING:
+      - Analyze the entire HTML structure to find profile information
+      - Look for experience sections with job titles, companies, and durations
+      - Look for education sections with schools, degrees, and fields of study
+      - Look for skills sections or skill mentions throughout the profile
       - Look for duration patterns like "5 mos", "10 mos", "1 yr 6 mos", "3 yrs 3 mos"
       - Handle multiple roles at the same company correctly (don't double count)
       - Skip any future dates (dates beyond current date)
       - For date ranges like "Apr 2023 - Sep 2024", calculate the actual months
       - For current jobs with "Present", calculate from start date to current date
       - Sum up all valid experience periods to get total experience
-
-      IMPORTANT RULES:
-      - For NAME: Look in basicInfo.name or basicInfo.fullName
-      - For LOCATION: Look in basicInfo.location
-      - For PROFILE_LINK: Look in basicInfo.profileLink or construct from current URL
-      - For CURRENT COMPANY: Look at the experience entry that has "Present" or current date as end date. Company name should be the organization/company name, NOT the job title
-      - For CURRENT DESIGNATION: Look at the same experience entry as current company. This should be the job title/position, NOT the company name
-      - For SKILLS: Clean the skills array, remove duplicates and non-skill text
-      - For TOTAL EXPERIENCE: Parse the experience HTML and calculate total years accurately (format as decimal like "4.8 yrs")
-      - For EDUCATION_QUALIFICATION: Extract from education array, format as list of objects with school, degree, field, duration, grade
       - Be very specific and accurate
       - Return null if information is not available
-      - Look at the basicInfo object for name, location, profile link
-      - Look at the experience array for detailed job information
-      - Look at the education array for education details
       - IMPORTANT: Company name and job title are different - company is the organization, designation is the role/position
 
       Return ONLY a JSON object with these exact keys (no markdown formatting):
@@ -1031,6 +1113,8 @@ class LinkedInScraper {
       
       console.log('Gemini API response:', geminiResponse);
       console.log('Profile data being sent to Gemini:', {
+        fullPageHtmlSize: fullPageHtml.length,
+        approach: 'Full HTML processing',
         basicInfo: profileData.basicInfo || 'No basicInfo',
         experience: profileData.experience || 'No experience',
         skills: profileData.skills || 'No skills',
@@ -2174,7 +2258,10 @@ class LinkedInScraper {
 
       console.log('Starting comprehensive profile scraping...');
 
-      // Scrape all sections in parallel for better performance
+      // Extract full page HTML for LLM processing
+      const fullPageHtml = this.extractFullPageHtml();
+      
+      // Scrape all sections in parallel for better performance (keeping for fallback)
       const [
         basicInfo,
         experienceResult,
@@ -2215,6 +2302,7 @@ class LinkedInScraper {
         basicInfo,
         experience,
         experienceRawHtml,
+        fullPageHtml, // New: Full page HTML for LLM processing
         education,
         skills,
         certifications,
@@ -2224,7 +2312,7 @@ class LinkedInScraper {
         publications,
         contactInfo,
         scrapedAt: new Date().toISOString(),
-        scrapingVersion: '2.0'
+        scrapingVersion: '2.1' // Updated version for HTML approach
       };
 
       console.log('Profile scraping completed:', {
