@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LinkedIn Education Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .artdeco-list__item { border: 1px solid #ccc; margin: 10px 0; padding: 15px; }
+        .pv-entity__school-name { font-weight: bold; font-size: 16px; }
+        .pv-entity__degree-name { color: #666; font-size: 14px; }
+        .pv-entity__fos { color: #888; font-size: 14px; }
+        .pv-entity__dates { color: #999; font-size: 12px; }
+        .pv-entity__grade { color: #4CAF50; font-size: 12px; }
+    </style>
+</head>
+<body>
+    <h1>LinkedIn Profile Test</h1>
+    
+    <section id="education">
+        <h2>Education</h2>
+        <div class="artdeco-list__item">
+            <div class="pv-entity__school-name">Stanford University</div>
+            <div class="pv-entity__degree-name">Bachelor of Science</div>
+            <div class="pv-entity__fos">Computer Science</div>
+            <div class="pv-entity__dates">2016 - 2020</div>
+            <div class="pv-entity__grade">3.8 GPA</div>
+        </div>
+        
+        <div class="artdeco-list__item">
+            <div class="pv-entity__school-name">MIT</div>
+            <div class="pv-entity__degree-name">Master of Science</div>
+            <div class="pv-entity__fos">Artificial Intelligence</div>
+            <div class="pv-entity__dates">2020 - 2022</div>
+            <div class="pv-entity__grade">3.9 GPA</div>
+        </div>
+    </section>
+
+    <script>
+        // Test the education scraping function
+        function testEducationScraping() {
+            console.log('Testing education scraping...');
+            
+            const education = [];
+            const educationSection = document.querySelector('#education');
+            
+            console.log('Education section found:', !!educationSection);
+            
+            if (!educationSection) {
+                console.log('Education section not found');
+                return education;
+            }
+
+            const educationItems = educationSection.parentElement.querySelectorAll('.artdeco-list__item');
+            console.log('Education items found:', educationItems.length);
+            
+            educationItems.forEach((item, index) => {
+                console.log(`Processing education item ${index}:`, item);
+                
+                // School/University name
+                const schoolSelectors = [
+                    '.pv-entity__school-name',
+                    '.t-16.t-black.t-bold',
+                    '.pv-entity__summary-info h3',
+                    '.pv-entity__school-name .t-16.t-black.t-bold',
+                    '.pvs-entity__school-name',
+                    '.pvs-entity__summary-info h3',
+                    '.t-16.t-black.t-bold',
+                    '.t-18.t-black.t-bold',
+                    'h3.t-16.t-black.t-bold',
+                    '.pvs-list__item h3',
+                    '.experience-item h3'
+                ];
+                
+                let school = '';
+                for (const selector of schoolSelectors) {
+                    const element = item.querySelector(selector);
+                    if (element) {
+                        school = element.textContent.trim();
+                        console.log(`Found school with selector ${selector}:`, school);
+                        break;
+                    }
+                }
+                
+                // Degree
+                const degreeSelectors = [
+                    '.pv-entity__degree-name',
+                    '.t-14.t-black--light',
+                    '.pv-entity__summary-info .t-14.t-black--light',
+                    '.pv-entity__degree-name .t-14.t-black--light',
+                    '.pvs-entity__degree-name',
+                    '.pvs-entity__summary-info .t-14.t-black--light',
+                    '.t-14.t-black--light.t-normal',
+                    '.pvs-list__item .t-14.t-black--light',
+                    '.experience-item .t-14.t-black--light'
+                ];
+                
+                let degree = '';
+                for (const selector of degreeSelectors) {
+                    const element = item.querySelector(selector);
+                    if (element) {
+                        degree = element.textContent.trim();
+                        console.log(`Found degree with selector ${selector}:`, degree);
+                        break;
+                    }
+                }
+                
+                // Field of study
+                const fieldSelectors = [
+                    '.pv-entity__fos',
+                    '.pv-entity__summary-info .t-14.t-black--light',
+                    '.pv-entity__degree-name + .t-14.t-black--light'
+                ];
+                
+                let field = '';
+                for (const selector of fieldSelectors) {
+                    const element = item.querySelector(selector);
+                    if (element) {
+                        field = element.textContent.trim();
+                        if (field && field !== degree) {
+                            console.log(`Found field with selector ${selector}:`, field);
+                            break;
+                        }
+                    }
+                }
+                
+                // Duration
+                const durationSelectors = [
+                    '.pv-entity__dates',
+                    '.t-14.t-black--light.t-normal',
+                    '.pv-entity__summary-info .t-14.t-black--light.t-normal'
+                ];
+                
+                let duration = '';
+                for (const selector of durationSelectors) {
+                    const element = item.querySelector(selector);
+                    if (element) {
+                        duration = element.textContent.trim();
+                        console.log(`Found duration with selector ${selector}:`, duration);
+                        break;
+                    }
+                }
+
+                // Grade/GPA
+                const gradeSelectors = [
+                    '.pv-entity__grade',
+                    '.pv-entity__summary-info .t-14.t-black--light'
+                ];
+                
+                let grade = '';
+                for (const selector of gradeSelectors) {
+                    const element = item.querySelector(selector);
+                    if (element) {
+                        const text = element.textContent.trim();
+                        if (text && (text.includes('GPA') || text.includes('Grade') || text.includes('%'))) {
+                            grade = text;
+                            console.log(`Found grade with selector ${selector}:`, grade);
+                            break;
+                        }
+                    }
+                }
+
+                if (school) {
+                    const educationEntry = {
+                        school,
+                        degree: degree || 'N/A',
+                        field: field || '',
+                        duration: duration || 'N/A',
+                        grade: grade || ''
+                    };
+                    console.log('Adding education entry:', educationEntry);
+                    education.push(educationEntry);
+                } else {
+                    console.log('No school found for education item, skipping');
+                }
+            });
+
+            console.log('Final education data:', education);
+            return education;
+        }
+        
+        // Run the test when page loads
+        window.addEventListener('load', testEducationScraping);
+    </script>
+</body>
+</html>

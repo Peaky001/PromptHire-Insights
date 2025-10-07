@@ -654,10 +654,14 @@ class LinkedInScraper {
     
     try {
       // Create a focused prompt for current job and skills extraction
+      const experienceHtml = profileData.experienceRawHtml || '';
       const prompt = `You are a LinkedIn profile analyzer. Extract the following information from this profile data:
 
       PROFILE DATA:
       ${JSON.stringify(profileData, null, 2)}
+
+      EXPERIENCE HTML (for accurate parsing):
+      ${experienceHtml}
 
       REQUIRED EXTRACTION:
       1. NAME: Extract the person's full name
@@ -669,6 +673,15 @@ class LinkedInScraper {
       7. TOTAL EXPERIENCE: Calculate total years of professional experience from all jobs (format as decimal like "4.8 yrs")
       8. EDUCATION_QUALIFICATION: Extract education details in the specified format
 
+      IMPORTANT RULES FOR EXPERIENCE PARSING:
+      - Use the EXPERIENCE HTML to accurately parse job durations and calculate total experience
+      - Look for duration patterns like "5 mos", "10 mos", "1 yr 6 mos", "3 yrs 3 mos"
+      - Handle multiple roles at the same company correctly (don't double count)
+      - Skip any future dates (dates beyond current date)
+      - For date ranges like "Apr 2023 - Sep 2024", calculate the actual months
+      - For current jobs with "Present", calculate from start date to current date
+      - Sum up all valid experience periods to get total experience
+
       IMPORTANT RULES:
       - For NAME: Look in basicInfo.name or basicInfo.fullName
       - For LOCATION: Look in basicInfo.location
@@ -676,7 +689,7 @@ class LinkedInScraper {
       - For CURRENT COMPANY: Look at the experience entry that has "Present" or current date as end date. Company name should be the organization/company name, NOT the job title
       - For CURRENT DESIGNATION: Look at the same experience entry as current company. This should be the job title/position, NOT the company name
       - For SKILLS: Clean the skills array, remove duplicates and non-skill text
-      - For TOTAL EXPERIENCE: Format as decimal years like "4.8 yrs" (already calculated in basicInfo.totalExperience)
+      - For TOTAL EXPERIENCE: Parse the experience HTML and calculate total years accurately (format as decimal like "4.8 yrs")
       - For EDUCATION_QUALIFICATION: Extract from education array, format as list of objects with school, degree, field, duration, grade
       - Be very specific and accurate
       - Return null if information is not available
@@ -1151,8 +1164,15 @@ class LinkedInScraper {
       
       if (!experienceSection) {
         console.log('No experience section found with any selector');
-        return experiences;
+        return { experiences: [], rawHtml: '' };
       }
+
+      // Extract raw HTML for Gemini parsing
+      const rawHtml = experienceSection.outerHTML;
+      console.log('Extracted experience HTML for Gemini parsing');
+      
+      // Store raw HTML for Gemini processing
+      this.experienceRawHtml = rawHtml;
 
       // Try multiple selectors for experience items
       const experienceItemSelectors = [
@@ -1317,10 +1337,10 @@ class LinkedInScraper {
         }
       });
 
-      return experiences;
+      return { experiences, rawHtml };
     } catch (error) {
       console.error('Error scraping experience:', error);
-      return [];
+      return { experiences: [], rawHtml: '' };
     }
   }
 
@@ -1330,23 +1350,91 @@ class LinkedInScraper {
       const education = [];
       const educationSection = document.querySelector('#education');
       
-      if (!educationSection) return education;
-
-      const educationItems = educationSection.parentElement.querySelectorAll('.artdeco-list__item');
+      console.log('Education section found:', !!educationSection);
+      console.log('Education section element:', educationSection);
       
-      educationItems.forEach(item => {
-        // School/University name
-        const schoolSelectors = [
+      if (!educationSection) {
+        console.log('Education section not found, trying alternative selectors...');
+        // Try alternative selectors for education section
+        const altEducationSection = document.querySelector('[data-section="education"]') || 
+                                   document.querySelector('.education-section') ||
+                                   document.querySelector('section[aria-labelledby*="education"]');
+        console.log('Alternative education section found:', !!altEducationSection);
+        if (!altEducationSection) return education;
+      }
+
+      const educationItems = educationSection ? 
+        educationSection.parentElement.querySelectorAll('.artdeco-list__item') :
+        document.querySelectorAll('.artdeco-list__item');
+      
+      console.log('Education items found:', educationItems.length);
+      
+      // If no items found with standard selectors, try broader search
+      if (educationItems.length === 0) {
+        console.log('No education items found with standard selectors, trying broader search...');
+        const allSections = document.querySelectorAll('section');
+        console.log('Total sections found:', allSections.length);
+        
+        allSections.forEach((section, index) => {
+          const sectionText = section.textContent.toLowerCase();
+          if (sectionText.includes('education') || sectionText.includes('university') || sectionText.includes('college')) {
+            console.log(`Section ${index} might contain education:`, sectionText.substring(0, 100));
+            const items = section.querySelectorAll('.artdeco-list__item, .pvs-list__item, .experience-item');
+            console.log(`Items in section ${index}:`, items.length);
+            
+            // Try to process these items as education
+            items.forEach((item, itemIndex) => {
+              console.log(`Processing potential education item ${itemIndex} from section ${index}:`, item);
+              this.processEducationItem(item, education);
+            });
+          }
+        });
+        
+        // If still no education found, try searching for any text that looks like education
+        if (education.length === 0) {
+          console.log('Still no education found, trying text-based search...');
+          this.searchEducationByText(education);
+        }
+      }
+      
+      educationItems.forEach((item, index) => {
+        console.log(`Processing education item ${index}:`, item);
+        this.processEducationItem(item, education);
+      });
+
+      console.log('Final education data:', education);
+      return education;
+    } catch (error) {
+      console.error('Error scraping education:', error);
+      return [];
+    }
+  }
+
+  // Helper method to process individual education items
+  processEducationItem(item, education) {
+    try {
+      // School/University name
+      const schoolSelectors = [
           '.pv-entity__school-name',
           '.t-16.t-black.t-bold',
           '.pv-entity__summary-info h3',
-          '.pv-entity__school-name .t-16.t-black.t-bold'
+          '.pv-entity__school-name .t-16.t-black.t-bold',
+          '.pvs-entity__school-name',
+          '.pvs-entity__summary-info h3',
+          '.t-16.t-black.t-bold',
+          '.t-18.t-black.t-bold',
+          'h3.t-16.t-black.t-bold',
+          '.pvs-list__item h3',
+          '.experience-item h3'
         ];
         
         let school = '';
         for (const selector of schoolSelectors) {
           school = this.extractText(selector, item);
-          if (school) break;
+          if (school) {
+            console.log(`Found school with selector ${selector}:`, school);
+            break;
+          }
         }
         
         // Degree
@@ -1354,13 +1442,21 @@ class LinkedInScraper {
           '.pv-entity__degree-name',
           '.t-14.t-black--light',
           '.pv-entity__summary-info .t-14.t-black--light',
-          '.pv-entity__degree-name .t-14.t-black--light'
+          '.pv-entity__degree-name .t-14.t-black--light',
+          '.pvs-entity__degree-name',
+          '.pvs-entity__summary-info .t-14.t-black--light',
+          '.t-14.t-black--light.t-normal',
+          '.pvs-list__item .t-14.t-black--light',
+          '.experience-item .t-14.t-black--light'
         ];
         
         let degree = '';
         for (const selector of degreeSelectors) {
           degree = this.extractText(selector, item);
-          if (degree) break;
+          if (degree) {
+            console.log(`Found degree with selector ${selector}:`, degree);
+            break;
+          }
         }
         
         // Field of study
@@ -1405,22 +1501,72 @@ class LinkedInScraper {
         }
 
         if (school) {
-          education.push({
+          const educationEntry = {
             school,
             degree: degree || 'N/A',
             field: field || '',
             duration: duration || 'N/A',
             grade: grade || ''
-          });
+          };
+          console.log('Adding education entry:', educationEntry);
+          education.push(educationEntry);
+        } else {
+          console.log('No school found for education item, skipping');
         }
-      });
-
-      return education;
-    } catch (error) {
-      console.error('Error scraping education:', error);
-      return [];
+      } catch (error) {
+        console.error('Error processing education item:', error);
+      }
     }
-  }
+
+    // Helper method to search for education by text content
+    searchEducationByText(education) {
+      try {
+        console.log('Searching for education by text content...');
+        const allText = document.body.textContent;
+        const educationKeywords = ['university', 'college', 'bachelor', 'master', 'phd', 'degree', 'graduated', 'studied'];
+        
+        // Look for patterns that might indicate education
+        const lines = allText.split('\n');
+        let currentEducation = null;
+        
+        lines.forEach(line => {
+          const lowerLine = line.toLowerCase().trim();
+          if (lowerLine.length > 10 && lowerLine.length < 200) {
+            // Check if this line contains education keywords
+            const hasEducationKeyword = educationKeywords.some(keyword => lowerLine.includes(keyword));
+            
+            if (hasEducationKeyword && !currentEducation) {
+              // Start of potential education entry
+              currentEducation = {
+                school: line.trim(),
+                degree: 'N/A',
+                field: '',
+                duration: 'N/A',
+                grade: ''
+              };
+            } else if (currentEducation && (lowerLine.includes('degree') || lowerLine.includes('bachelor') || lowerLine.includes('master'))) {
+              // This might be the degree
+              currentEducation.degree = line.trim();
+            } else if (currentEducation && (lowerLine.includes('20') && lowerLine.length < 50)) {
+              // This might be the duration
+              currentEducation.duration = line.trim();
+              // Finish this education entry
+              education.push(currentEducation);
+              console.log('Added education from text search:', currentEducation);
+              currentEducation = null;
+            }
+          }
+        });
+        
+        // Add any remaining education entry
+        if (currentEducation) {
+          education.push(currentEducation);
+          console.log('Added final education from text search:', currentEducation);
+        }
+      } catch (error) {
+        console.error('Error in text-based education search:', error);
+      }
+    }
 
   // Scrape skills section
   scrapeSkills() {
@@ -1758,7 +1904,9 @@ class LinkedInScraper {
 
       // Scrape all sections
       const basicInfo = this.scrapeBasicInfo();
-      const experience = this.scrapeExperience();
+      const experienceResult = this.scrapeExperience();
+      const experience = experienceResult.experiences;
+      const experienceRawHtml = experienceResult.rawHtml;
       const education = this.scrapeEducation();
       const skills = this.scrapeSkills();
       const certifications = this.scrapeCertifications();
@@ -1769,15 +1917,18 @@ class LinkedInScraper {
       const contactInfo = this.scrapeContactInfo();
 
       // Calculate total experience including education
+      // Total experience will be calculated by Gemini from the raw HTML
+      // Keep the basic calculation as fallback
       const totalExperienceWithEducation = this.calculateTotalExperienceWithEducation(experience, education);
       const totalExperienceFormatted = this.formatTotalExperience(totalExperienceWithEducation);
       
-      // Update basicInfo with calculated total experience
+      // Update basicInfo with calculated total experience (fallback)
       basicInfo.totalExperience = totalExperienceFormatted;
 
       this.profileData = {
         basicInfo,
         experience,
+        experienceRawHtml,
         education,
         skills,
         certifications,

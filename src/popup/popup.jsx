@@ -28,7 +28,8 @@ const LinkedInScraperPopup = () => {
     skills: '',
     current_company: '',
     linkedin_profile: '',
-    current_location: ''
+    current_location: '',
+    education_qualification: ''
   });
 
   useEffect(() => {
@@ -277,6 +278,17 @@ const LinkedInScraperPopup = () => {
         
         // Populate editable fields with scraped data
         const data = response.data;
+        
+        // Format education data for display
+        const formatEducationData = (educationData) => {
+          if (!educationData || !Array.isArray(educationData)) return '';
+          return educationData.map(edu => 
+            `${edu.school} - ${edu.degree}${edu.field ? ` in ${edu.field}` : ''}${edu.duration ? ` (${edu.duration})` : ''}${edu.grade ? ` - ${edu.grade}` : ''}`
+          ).join('\n');
+        };
+        
+        const educationData = data.geminiExtracted?.education_qualification || data.education || [];
+        
         setEditableData({
           candidate_name: data.name || data.geminiExtracted?.name || data.basicInfo?.name || '',
           candidate_email: 'default@example.com', // Keep default
@@ -285,7 +297,8 @@ const LinkedInScraperPopup = () => {
           skills: Array.isArray(data.skills) ? data.skills.join(', ') : (data.geminiExtracted?.skills ? data.geminiExtracted.skills.join(', ') : ''),
           current_company: data.currentCompany || data.geminiExtracted?.currentCompany || data.basicInfo?.currentCompany || '',
           linkedin_profile: data.profileLink || data.geminiExtracted?.profileLink || data.basicInfo?.profileUrl || data.profileUrl || '',
-          current_location: data.location || data.geminiExtracted?.location || data.basicInfo?.location || ''
+          current_location: data.location || data.geminiExtracted?.location || data.basicInfo?.location || '',
+          education_qualification: formatEducationData(educationData)
         });
         
         setSuccess('Profile scraped successfully!');
@@ -487,6 +500,17 @@ const LinkedInScraperPopup = () => {
         {data.education && data.education.length > 0 && (
           <div className="data-section">
             <strong>Education:</strong> {data.education.length} entries
+            <div className="education-details">
+              {data.education.map((edu, index) => (
+                <div key={index} className="education-item">
+                  <div className="education-school">{edu.school}</div>
+                  <div className="education-degree">{edu.degree}</div>
+                  {edu.field && <div className="education-field">{edu.field}</div>}
+                  {edu.duration && <div className="education-duration">{edu.duration}</div>}
+                  {edu.grade && <div className="education-grade">{edu.grade}</div>}
+                </div>
+              ))}
+            </div>
           </div>
         )}
         {data.skills && data.skills.length > 0 && (
@@ -572,6 +596,22 @@ const LinkedInScraperPopup = () => {
               <div className="data-section ai-enhanced">
                 <strong>Total Experience:</strong>
                 <span>{data.geminiExtracted.totalExperience}</span>
+              </div>
+            )}
+            {data.geminiExtracted?.education_qualification && data.geminiExtracted.education_qualification.length > 0 && (
+              <div className="data-section ai-enhanced">
+                <strong>Education Qualifications:</strong>
+                <div className="education-details">
+                  {data.geminiExtracted.education_qualification.map((edu, index) => (
+                    <div key={index} className="education-item">
+                      <div className="education-school">{edu.school}</div>
+                      <div className="education-degree">{edu.degree}</div>
+                      {edu.field && <div className="education-field">{edu.field}</div>}
+                      {edu.duration && <div className="education-duration">{edu.duration}</div>}
+                      {edu.grade && <div className="education-grade">{edu.grade}</div>}
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
           </>
@@ -731,6 +771,18 @@ const LinkedInScraperPopup = () => {
                   placeholder="e.g., JavaScript, React, Node.js"
                   rows="3"
                 />
+              </div>
+
+              <div className="form-group">
+                <label htmlFor="education_qualification">Education Qualifications</label>
+                <textarea
+                  id="education_qualification"
+                  value={editableData.education_qualification}
+                  onChange={(e) => setEditableData({...editableData, education_qualification: e.target.value})}
+                  placeholder="e.g., Stanford University - Bachelor's in Computer Science (2016-2020) - 3.8 GPA"
+                  rows="4"
+                />
+                <small className="form-help">Format: School - Degree in Field (Duration) - Grade</small>
               </div>
             </div>
           )}
