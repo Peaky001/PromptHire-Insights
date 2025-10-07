@@ -26,7 +26,10 @@ class LinkedInScraper {
     // Only show on LinkedIn profile pages
     if (window.location.href.includes('linkedin.com/in/')) {
       console.log('LinkedIn profile page detected, creating floating icon');
-      this.createFloatingIcon();
+      // Add a small delay to ensure page is fully loaded
+      setTimeout(() => {
+        this.createFloatingIcon();
+      }, 1000);
     } else {
       console.log('Not a LinkedIn profile page, skipping floating icon');
     }
@@ -74,6 +77,8 @@ class LinkedInScraper {
     // Set initial position
     this.floatingIcon.style.left = savedPosition.x + 'px';
     this.floatingIcon.style.top = savedPosition.y + 'px';
+    this.floatingIcon.style.right = 'auto';
+    this.floatingIcon.style.bottom = 'auto';
 
     // Add styles
     const style = document.createElement('style');
@@ -82,10 +87,14 @@ class LinkedInScraper {
         position: fixed;
         top: 20px;
         right: 20px;
-        z-index: 10000;
+        z-index: 999999;
         cursor: pointer;
         transition: all 0.3s ease;
         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        user-select: none;
+        -webkit-user-select: none;
+        -moz-user-select: none;
+        -ms-user-select: none;
       }
 
       #prompthire-floating-icon:hover {
@@ -108,6 +117,12 @@ class LinkedInScraper {
       .prompthire-icon-container:hover {
         box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
         transform: translateY(-2px);
+      }
+
+      .prompthire-dragging .prompthire-icon-container {
+        box-shadow: 0 8px 25px rgba(0, 0, 0, 0.3);
+        transform: scale(1.1);
+        opacity: 0.9;
       }
 
       .prompthire-icon-container svg {
@@ -149,6 +164,38 @@ class LinkedInScraper {
         visibility: visible;
       }
 
+      .prompthire-drag-handle {
+        position: absolute;
+        bottom: -2px;
+        right: -2px;
+        width: 16px;
+        height: 16px;
+        background: rgba(255, 255, 255, 0.9);
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: grab;
+        transition: all 0.2s ease;
+        border: 2px solid #667eea;
+      }
+
+      .prompthire-drag-handle:hover {
+        background: rgba(255, 255, 255, 1);
+        transform: scale(1.1);
+      }
+
+      .prompthire-drag-handle:active {
+        cursor: grabbing;
+        transform: scale(0.95);
+      }
+
+      .prompthire-drag-handle svg {
+        color: #667eea;
+        width: 8px;
+        height: 8px;
+      }
+
       /* Responsive adjustments */
       @media (max-width: 768px) {
         #prompthire-floating-icon {
@@ -172,6 +219,27 @@ class LinkedInScraper {
     document.head.appendChild(style);
     document.body.appendChild(this.floatingIcon);
 
+    // Add debugging
+    console.log('Floating icon added to page:', {
+      element: this.floatingIcon,
+      position: {
+        left: this.floatingIcon.style.left,
+        top: this.floatingIcon.style.top
+      },
+      visible: this.floatingIcon.offsetParent !== null
+    });
+
+    // Ensure icon is visible with a fallback position
+    setTimeout(() => {
+      if (!this.floatingIcon.offsetParent) {
+        console.log('Icon not visible, applying fallback position');
+        this.floatingIcon.style.left = '20px';
+        this.floatingIcon.style.top = '20px';
+        this.floatingIcon.style.right = 'auto';
+        this.floatingIcon.style.bottom = 'auto';
+      }
+    }, 100);
+
     // Add click handler
     this.floatingIcon.addEventListener('click', (e) => {
       e.preventDefault();
@@ -187,6 +255,9 @@ class LinkedInScraper {
     this.floatingIcon.addEventListener('mouseleave', () => {
       this.floatingIcon.style.transform = 'scale(1)';
     });
+
+    // Add dragging functionality
+    this.makeDraggable();
     
     console.log('Floating icon created and added to page');
   }
@@ -215,6 +286,169 @@ class LinkedInScraper {
     } catch (error) {
       console.log('Could not save position:', error);
     }
+  }
+
+  // Make the floating icon draggable
+  makeDraggable() {
+    let isDragging = false;
+    let currentX;
+    let currentY;
+    let initialX;
+    let initialY;
+    let xOffset = 0;
+    let yOffset = 0;
+
+    // Get the drag handle element
+    const dragHandle = this.floatingIcon.querySelector('.prompthire-drag-handle');
+    
+    if (!dragHandle) {
+      console.log('Drag handle not found, making entire icon draggable');
+    }
+
+    const dragElement = dragHandle || this.floatingIcon;
+
+    // Mouse down event
+    dragElement.addEventListener('mousedown', (e) => {
+      // Only start dragging if clicking on the drag handle or if no drag handle exists
+      if (dragHandle && e.target !== dragHandle && !dragHandle.contains(e.target)) {
+        return;
+      }
+
+      e.preventDefault();
+      e.stopPropagation();
+      
+      isDragging = true;
+      
+      // Get current position from computed styles
+      const rect = this.floatingIcon.getBoundingClientRect();
+      xOffset = rect.left;
+      yOffset = rect.top;
+      
+      // Get initial mouse position
+      initialX = e.clientX - xOffset;
+      initialY = e.clientY - yOffset;
+      
+      // Add dragging class for visual feedback
+      this.floatingIcon.classList.add('prompthire-dragging');
+      
+      // Change cursor
+      document.body.style.cursor = 'grabbing';
+      
+      console.log('Started dragging from position:', { x: xOffset, y: yOffset });
+    });
+
+    // Mouse move event
+    document.addEventListener('mousemove', (e) => {
+      if (isDragging) {
+        e.preventDefault();
+        
+        // Calculate new position
+        currentX = e.clientX - initialX;
+        currentY = e.clientY - initialY;
+        
+        // Update offsets
+        xOffset = currentX;
+        yOffset = currentY;
+        
+        // Constrain to viewport
+        const iconRect = this.floatingIcon.getBoundingClientRect();
+        const maxX = window.innerWidth - iconRect.width;
+        const maxY = window.innerHeight - iconRect.height;
+        
+        const constrainedX = Math.max(0, Math.min(currentX, maxX));
+        const constrainedY = Math.max(0, Math.min(currentY, maxY));
+        
+        // Apply position
+        this.floatingIcon.style.left = constrainedX + 'px';
+        this.floatingIcon.style.top = constrainedY + 'px';
+        this.floatingIcon.style.right = 'auto';
+        this.floatingIcon.style.bottom = 'auto';
+      }
+    });
+
+    // Mouse up event
+    document.addEventListener('mouseup', (e) => {
+      if (isDragging) {
+        isDragging = false;
+        
+        // Remove dragging class
+        this.floatingIcon.classList.remove('prompthire-dragging');
+        
+        // Reset cursor
+        document.body.style.cursor = 'default';
+        
+        // Save position
+        const finalX = Math.max(0, Math.min(currentX, window.innerWidth - this.floatingIcon.getBoundingClientRect().width));
+        const finalY = Math.max(0, Math.min(currentY, window.innerHeight - this.floatingIcon.getBoundingClientRect().height));
+        
+        this.savePosition(finalX, finalY);
+        console.log('Icon position saved:', { x: finalX, y: finalY });
+      }
+    });
+
+    // Touch events for mobile support
+    dragElement.addEventListener('touchstart', (e) => {
+      if (dragHandle && e.target !== dragHandle && !dragHandle.contains(e.target)) {
+        return;
+      }
+
+      e.preventDefault();
+      e.stopPropagation();
+      
+      isDragging = true;
+      
+      // Get current position from computed styles
+      const rect = this.floatingIcon.getBoundingClientRect();
+      xOffset = rect.left;
+      yOffset = rect.top;
+      
+      const touch = e.touches[0];
+      initialX = touch.clientX - xOffset;
+      initialY = touch.clientY - yOffset;
+      
+      this.floatingIcon.classList.add('prompthire-dragging');
+      
+      console.log('Started touch dragging from position:', { x: xOffset, y: yOffset });
+    });
+
+    document.addEventListener('touchmove', (e) => {
+      if (isDragging) {
+        e.preventDefault();
+        
+        const touch = e.touches[0];
+        currentX = touch.clientX - initialX;
+        currentY = touch.clientY - initialY;
+        
+        xOffset = currentX;
+        yOffset = currentY;
+        
+        const iconRect = this.floatingIcon.getBoundingClientRect();
+        const maxX = window.innerWidth - iconRect.width;
+        const maxY = window.innerHeight - iconRect.height;
+        
+        const constrainedX = Math.max(0, Math.min(currentX, maxX));
+        const constrainedY = Math.max(0, Math.min(currentY, maxY));
+        
+        this.floatingIcon.style.left = constrainedX + 'px';
+        this.floatingIcon.style.top = constrainedY + 'px';
+        this.floatingIcon.style.right = 'auto';
+        this.floatingIcon.style.bottom = 'auto';
+      }
+    });
+
+    document.addEventListener('touchend', (e) => {
+      if (isDragging) {
+        isDragging = false;
+        
+        this.floatingIcon.classList.remove('prompthire-dragging');
+        
+        const finalX = Math.max(0, Math.min(currentX, window.innerWidth - this.floatingIcon.getBoundingClientRect().width));
+        const finalY = Math.max(0, Math.min(currentY, window.innerHeight - this.floatingIcon.getBoundingClientRect().height));
+        
+        this.savePosition(finalX, finalY);
+        console.log('Icon position saved (touch):', { x: finalX, y: finalY });
+      }
+    });
   }
 
   // Open popup programmatically
