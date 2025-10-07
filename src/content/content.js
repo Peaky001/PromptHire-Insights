@@ -5,6 +5,8 @@ class LinkedInScraper {
       console.log('LinkedInScraper constructor starting...');
       this.profileData = {};
       this.geminiApiKey = process.env.GEMINI_API_KEY || '';
+      this.cache = new Map(); // Simple cache for scraped data
+      this.isScraping = false;
       console.log('Gemini API key loaded:', this.geminiApiKey ? 'Yes' : 'No');
       console.log('Gemini API key length:', this.geminiApiKey ? this.geminiApiKey.length : 0);
       console.log('Gemini API key first 10 chars:', this.geminiApiKey ? this.geminiApiKey.substring(0, 10) : 'N/A');
@@ -221,32 +223,34 @@ class LinkedInScraper {
     chrome.runtime.sendMessage({ action: 'openPopup' });
   }
 
-  // Wait for element to be present
-  waitForElement(selector, timeout = 5000) {
+  // Wait for element to be present (optimized for speed)
+  waitForElement(selector, timeout = 2000) {
     return new Promise((resolve, reject) => {
+      // Check immediately first
       const element = document.querySelector(selector);
       if (element) {
         resolve(element);
         return;
       }
 
-      const observer = new MutationObserver((mutations, obs) => {
+      // Use requestAnimationFrame for more efficient checking
+      let startTime = Date.now();
+      const checkElement = () => {
         const element = document.querySelector(selector);
         if (element) {
-          obs.disconnect();
           resolve(element);
+          return;
         }
-      });
-
-      observer.observe(document.body, {
-        childList: true,
-        subtree: true
-      });
-
-      setTimeout(() => {
-        observer.disconnect();
-        reject(new Error(`Element ${selector} not found within ${timeout}ms`));
-      }, timeout);
+        
+        if (Date.now() - startTime > timeout) {
+          reject(new Error(`Element ${selector} not found within ${timeout}ms`));
+          return;
+        }
+        
+        requestAnimationFrame(checkElement);
+      };
+      
+      requestAnimationFrame(checkElement);
     });
   }
 
@@ -653,12 +657,29 @@ class LinkedInScraper {
     }
     
     try {
-      // Create a focused prompt for current job and skills extraction
+      // Create a focused prompt with minimal data for faster processing
       const experienceHtml = profileData.experienceRawHtml || '';
+      const basicInfo = profileData.basicInfo || {};
+      const experience = profileData.experience || [];
+      const education = profileData.education || [];
+      const skills = profileData.skills || [];
+      
+      // Create minimal data payload for faster API response
+      const minimalData = {
+        basicInfo: {
+          name: basicInfo.name || basicInfo.fullName,
+          location: basicInfo.location,
+          profileLink: basicInfo.profileLink
+        },
+        experience: experience.slice(0, 5), // Limit to first 5 experiences
+        education: education.slice(0, 3), // Limit to first 3 education entries
+        skills: skills.slice(0, 20) // Limit to first 20 skills
+      };
+      
       const prompt = `You are a LinkedIn profile analyzer. Extract the following information from this profile data:
 
       PROFILE DATA:
-      ${JSON.stringify(profileData, null, 2)}
+      ${JSON.stringify(minimalData, null, 2)}
 
       EXPERIENCE HTML (for accurate parsing):
       ${experienceHtml}
@@ -718,44 +739,44 @@ class LinkedInScraper {
         ]
       }`;
 
-      // Try different Gemini model endpoints
-      const modelEndpoints = [
-        'gemini-2.5-flash',
-        'gemini-2.0-flash',
-        'gemini-2.0-pro'
-      ];
-
+      // Use only the fastest model with timeout
+      const model = 'gemini-2.0-flash'; // Fastest model
       let response = null;
       let lastError = null;
 
-      for (const model of modelEndpoints) {
-        try {
-          console.log(`Trying Gemini model: ${model}`);
-          response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${this.geminiApiKey}`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              contents: [{
-                parts: [{
-                  text: prompt
-                }]
+      try {
+        console.log(`Trying Gemini model: ${model}`);
+        
+        // Create AbortController for timeout
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 8000); // 8 second timeout
+        
+        response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${this.geminiApiKey}`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            contents: [{
+              parts: [{
+                text: prompt
               }]
-            })
-          });
+            }]
+          }),
+          signal: controller.signal
+        });
+        
+        clearTimeout(timeoutId);
 
-          if (response.ok) {
-            console.log(`Successfully connected to Gemini model: ${model}`);
-            break;
-          } else {
-            console.log(`Model ${model} failed with status: ${response.status}`);
-            lastError = response.status;
-          }
-        } catch (modelError) {
-          console.log(`Model ${model} error:`, modelError);
-          lastError = modelError;
+        if (!response.ok) {
+          console.log(`Model ${model} failed with status: ${response.status}`);
+          lastError = response.status;
+        } else {
+          console.log(`Successfully connected to Gemini model: ${model}`);
         }
+      } catch (modelError) {
+        console.log(`Model ${model} error:`, modelError);
+        lastError = modelError;
       }
 
       if (!response || !response.ok) {
@@ -1894,27 +1915,58 @@ class LinkedInScraper {
   // Main scraping function
   async scrapeProfile() {
     try {
-      // Wait for the page to load
-      await this.waitForElement('h1', 3000);
+      // Check cache first
+      const currentUrl = window.location.href;
+      const cacheKey = `profile_${currentUrl}`;
       
-      // Give a bit more time for dynamic content to load
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      if (this.cache.has(cacheKey)) {
+        console.log('Returning cached profile data');
+        return this.cache.get(cacheKey);
+      }
+      
+      // Prevent multiple simultaneous scraping
+      if (this.isScraping) {
+        console.log('Scraping already in progress, please wait...');
+        return { success: false, error: 'Scraping already in progress' };
+      }
+      
+      this.isScraping = true;
+      
+      // Wait for the page to load (reduced from 3s to 1s)
+      await this.waitForElement('h1', 1000);
+      
+      // Give minimal time for dynamic content to load (reduced from 2s to 0.5s)
+      await new Promise(resolve => setTimeout(resolve, 500));
 
       console.log('Starting comprehensive profile scraping...');
 
-      // Scrape all sections
-      const basicInfo = this.scrapeBasicInfo();
-      const experienceResult = this.scrapeExperience();
+      // Scrape all sections in parallel for better performance
+      const [
+        basicInfo,
+        experienceResult,
+        education,
+        skills,
+        certifications,
+        volunteerExperience,
+        languages,
+        honorsAwards,
+        publications,
+        contactInfo
+      ] = await Promise.all([
+        Promise.resolve(this.scrapeBasicInfo()),
+        Promise.resolve(this.scrapeExperience()),
+        Promise.resolve(this.scrapeEducation()),
+        Promise.resolve(this.scrapeSkills()),
+        Promise.resolve(this.scrapeCertifications()),
+        Promise.resolve(this.scrapeVolunteerExperience()),
+        Promise.resolve(this.scrapeLanguages()),
+        Promise.resolve(this.scrapeHonorsAwards()),
+        Promise.resolve(this.scrapePublications()),
+        Promise.resolve(this.scrapeContactInfo())
+      ]);
+      
       const experience = experienceResult.experiences;
       const experienceRawHtml = experienceResult.rawHtml;
-      const education = this.scrapeEducation();
-      const skills = this.scrapeSkills();
-      const certifications = this.scrapeCertifications();
-      const volunteerExperience = this.scrapeVolunteerExperience();
-      const languages = this.scrapeLanguages();
-      const honorsAwards = this.scrapeHonorsAwards();
-      const publications = this.scrapePublications();
-      const contactInfo = this.scrapeContactInfo();
 
       // Calculate total experience including education
       // Total experience will be calculated by Gemini from the raw HTML
@@ -1954,11 +2006,23 @@ class LinkedInScraper {
         contactInfo: Object.keys(contactInfo).length
       });
 
-      // Enhance data with Gemini AI
+      // Enhance data with Gemini AI with timeout fallback
       console.log('Enhancing data with Gemini AI...');
-      const enhancedData = await this.enhanceDataWithGemini(this.profileData);
-      console.log('Enhanced data:', enhancedData);
-      console.log('Gemini enhancement completed:', enhancedData.geminiEnhanced ? 'Success' : 'Failed');
+      let enhancedData;
+      try {
+        // Add overall timeout for Gemini enhancement
+        const geminiPromise = this.enhanceDataWithGemini(this.profileData);
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Gemini timeout')), 10000) // 10 second overall timeout
+        );
+        
+        enhancedData = await Promise.race([geminiPromise, timeoutPromise]);
+        console.log('Enhanced data:', enhancedData);
+        console.log('Gemini enhancement completed:', enhancedData.geminiEnhanced ? 'Success' : 'Failed');
+      } catch (error) {
+        console.log('Gemini enhancement timed out or failed, using basic extraction:', error.message);
+        enhancedData = this.profileData;
+      }
 
       // If Gemini enhancement failed, return the original data with basic extraction
       if (!enhancedData.geminiEnhanced) {
@@ -1978,9 +2042,14 @@ class LinkedInScraper {
         return basicEnhanced;
       }
 
+      // Cache the result
+      this.cache.set(cacheKey, enhancedData);
+      this.isScraping = false;
+      
       return enhancedData;
     } catch (error) {
       console.error('Error scraping profile:', error);
+      this.isScraping = false;
       throw error;
     }
   }

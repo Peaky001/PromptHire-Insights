@@ -492,11 +492,6 @@ const LinkedInScraperPopup = () => {
         )}
 
         {/* Professional Information */}
-        {data.experience && data.experience.length > 0 && (
-          <div className="data-section">
-            <strong>Experience:</strong> {data.experience.length} positions
-          </div>
-        )}
         {data.education && data.education.length > 0 && (
           <div className="data-section">
             <strong>Education:</strong> {data.education.length} entries
@@ -511,11 +506,6 @@ const LinkedInScraperPopup = () => {
                 </div>
               ))}
             </div>
-          </div>
-        )}
-        {data.skills && data.skills.length > 0 && (
-          <div className="data-section">
-            <strong>Skills:</strong> {data.skills.length} skills
           </div>
         )}
 
