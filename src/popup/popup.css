@@ -217,6 +217,13 @@ body {
   animation: spin 1s linear infinite;
 }
 
+.loading-subtext {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.8);
+  margin-top: 4px;
+  font-weight: 400;
+}
+
 @keyframes spin {
   0% { transform: rotate(0deg); }
   100% { transform: rotate(360deg); }

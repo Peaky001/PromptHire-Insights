@@ -613,8 +613,12 @@ const LinkedInScraperPopup = () => {
           {data.scrapingVersion && (
             <span> | <strong>Version:</strong> {data.scrapingVersion}</span>
           )}
-          {data.geminiEnhanced && (
+          {data.geminiEnhanced ? (
             <span> | <strong>AI Enhanced:</strong> ✅</span>
+          ) : data.geminiError ? (
+            <span> | <strong>AI Status:</strong> ⚠️ {data.geminiError}</span>
+          ) : (
+            <span> | <strong>AI Enhanced:</strong> ❌</span>
           )}
         </div>
       </div>
@@ -649,6 +653,7 @@ const LinkedInScraperPopup = () => {
                 <>
                   <span className="spinner"></span>
                   Analyzing Profile...
+                  <div className="loading-subtext">Fast AI processing...</div>
                 </>
               ) : rateLimitStatus && rateLimitStatus.status === 'cooldown' ? (
                 <>

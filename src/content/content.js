@@ -488,6 +488,72 @@ class LinkedInScraper {
     });
   }
 
+  // Wait for any of multiple elements to be present (for different LinkedIn views)
+  waitForAnyElement(selectors, timeout = 3000) {
+    return new Promise((resolve, reject) => {
+      // Check immediately first
+      for (const selector of selectors) {
+        const element = document.querySelector(selector);
+        if (element) {
+          console.log(`Found element with selector: ${selector}`);
+          resolve(element);
+          return;
+        }
+      }
+
+      // Use requestAnimationFrame for more efficient checking
+      let startTime = Date.now();
+      const checkElements = () => {
+        for (const selector of selectors) {
+          const element = document.querySelector(selector);
+          if (element) {
+            console.log(`Found element with selector: ${selector}`);
+            resolve(element);
+            return;
+          }
+        }
+        
+        if (Date.now() - startTime > timeout) {
+          reject(new Error(`None of the elements [${selectors.join(', ')}] found within ${timeout}ms`));
+          return;
+        }
+        
+        requestAnimationFrame(checkElements);
+      };
+      
+      requestAnimationFrame(checkElements);
+    });
+  }
+
+  // Check if an error is retryable
+  isRetryableError(status, errorText) {
+    // Retryable status codes
+    const retryableStatuses = [429, 500, 502, 503, 504];
+    
+    if (retryableStatuses.includes(status)) {
+      return true;
+    }
+    
+    // Check for specific error messages that indicate temporary issues
+    if (errorText) {
+      const retryableMessages = [
+        'overloaded',
+        'rate limit',
+        'quota exceeded',
+        'temporarily unavailable',
+        'service unavailable',
+        'internal error',
+        'timeout',
+        'connection error'
+      ];
+      
+      const lowerErrorText = errorText.toLowerCase();
+      return retryableMessages.some(message => lowerErrorText.includes(message));
+    }
+    
+    return false;
+  }
+
   // Extract text content safely
   extractText(selector, parent = document) {
     const element = parent.querySelector(selector);
@@ -620,7 +686,7 @@ class LinkedInScraper {
   }
 
   // Clean HTML by removing unnecessary elements and attributes
-  cleanHtmlForLLM(html) {
+  cleanHtmlForLLM(html, aggressive = false) {
     try {
       // Create a temporary div to parse the HTML
       const tempDiv = document.createElement('div');
@@ -638,6 +704,16 @@ class LinkedInScraper {
         'script', 'style', 'link[rel="stylesheet"]',
         'meta', 'title'
       ];
+      
+      if (aggressive) {
+        // More aggressive removal for faster processing
+        elementsToRemove.push(
+          '.recommendations', '.suggestions', '.related',
+          '.social-actions', '.share-buttons', '.follow-buttons',
+          '.messaging', '.contact-actions', '.connection-actions',
+          '.premium-upsell', '.upgrade-prompt', '.subscription'
+        );
+      }
       
       elementsToRemove.forEach(selector => {
         const elements = tempDiv.querySelectorAll(selector);
@@ -672,7 +748,14 @@ class LinkedInScraper {
         }
       });
       
-      return tempDiv.innerHTML;
+      let result = tempDiv.innerHTML;
+      
+      // Limit size for aggressive mode
+      if (aggressive && result.length > 50000) {
+        result = result.substring(0, 50000) + '...';
+      }
+      
+      return result;
     } catch (error) {
       console.error('Error cleaning HTML:', error);
       return html; // Return original if cleaning fails
@@ -720,6 +803,76 @@ class LinkedInScraper {
     } catch (error) {
       console.error('Error extracting full page HTML:', error);
       return '';
+    }
+  }
+
+  // Extract optimized page HTML for faster LLM processing
+  extractOptimizedPageHtml() {
+    try {
+      console.log('Extracting optimized page HTML for LLM processing...');
+      
+      // Get the main content area, excluding header/footer
+      const mainContentSelectors = [
+        'main',
+        '.application-outlet',
+        '.scaffold-layout__content',
+        '#main-content',
+        '.profile-content',
+        'body'
+      ];
+      
+      let mainContent = null;
+      for (const selector of mainContentSelectors) {
+        mainContent = document.querySelector(selector);
+        if (mainContent) {
+          console.log(`Found main content using selector: ${selector}`);
+          break;
+        }
+      }
+      
+      if (!mainContent) {
+        console.log('No main content found, using body');
+        mainContent = document.body;
+      }
+      
+      // Extract only essential sections for faster processing
+      const essentialSelectors = [
+        '.pv-top-card', // Profile header
+        '.pv-profile-section', // Profile sections
+        '.experience-section', // Experience
+        '.education-section', // Education
+        '.skills-section', // Skills
+        '.pv-about-section', // About
+        '.pv-accomplishments-section', // Accomplishments
+        '[data-section="experience"]', // Experience data
+        '[data-section="education"]', // Education data
+        '[data-section="skills"]' // Skills data
+      ];
+      
+      let optimizedHtml = '';
+      for (const selector of essentialSelectors) {
+        const elements = mainContent.querySelectorAll(selector);
+        elements.forEach(el => {
+          optimizedHtml += el.outerHTML;
+        });
+      }
+      
+      // If no essential sections found, fall back to full content but limit size
+      if (optimizedHtml.length < 1000) {
+        console.log('Using fallback full content extraction');
+        optimizedHtml = mainContent.outerHTML;
+      }
+      
+      console.log('Extracted optimized HTML, size:', optimizedHtml.length);
+      
+      // Clean the HTML with more aggressive optimization
+      const cleanedHtml = this.cleanHtmlForLLM(optimizedHtml, true);
+      console.log('Cleaned optimized HTML size:', cleanedHtml.length);
+      
+      return cleanedHtml;
+    } catch (error) {
+      console.error('Error extracting optimized page HTML:', error);
+      return this.extractFullPageHtml(); // Fallback to full extraction
     }
   }
 
@@ -1055,50 +1208,98 @@ class LinkedInScraper {
         ]
       }`;
 
-      // Use only the fastest model with timeout
-      const model = 'gemini-2.0-flash'; // Fastest model
+      // Try multiple models with retry logic
+      const models = ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro'];
       let response = null;
       let lastError = null;
 
-      try {
-        console.log(`Trying Gemini model: ${model}`);
-        
-        // Create AbortController for timeout
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 8000); // 8 second timeout
-        
-        response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${this.geminiApiKey}`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            contents: [{
-              parts: [{
-                text: prompt
-              }]
-            }]
-          }),
-          signal: controller.signal
-        });
-        
-        clearTimeout(timeoutId);
+      for (const model of models) {
+        try {
+          console.log(`Trying Gemini model: ${model}`);
+          
+          // Retry logic with exponential backoff (reduced for speed)
+          const maxRetries = 2; // Reduced from 3 to 2 for faster processing
+          let retryCount = 0;
+          
+          while (retryCount < maxRetries) {
+            try {
+              // Create AbortController for timeout
+              const controller = new AbortController();
+              const timeoutId = setTimeout(() => controller.abort(), 6000); // Reduced to 6 second timeout
+              
+              response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${this.geminiApiKey}`, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                  contents: [{
+                    parts: [{
+                      text: prompt
+                    }]
+                  }]
+                }),
+                signal: controller.signal
+              });
+              
+              clearTimeout(timeoutId);
 
-        if (!response.ok) {
-          console.log(`Model ${model} failed with status: ${response.status}`);
-          lastError = response.status;
-        } else {
-          console.log(`Successfully connected to Gemini model: ${model}`);
+              if (response.ok) {
+                console.log(`Successfully connected to Gemini model: ${model}`);
+                break; // Success, exit retry loop
+              } else {
+                const errorText = await response.text();
+                console.log(`Model ${model} failed with status: ${response.status}, attempt ${retryCount + 1}`);
+                console.log('Error response:', errorText);
+                
+                // Check if it's a retryable error
+                if (this.isRetryableError(response.status, errorText)) {
+                  retryCount++;
+                  if (retryCount < maxRetries) {
+                    const delay = Math.pow(1.5, retryCount) * 500; // Faster backoff: 750ms, 1.1s, 1.7s
+                    console.log(`Retrying in ${Math.round(delay)}ms...`);
+                    await new Promise(resolve => setTimeout(resolve, delay));
+                    continue;
+                  }
+                } else {
+                  // Non-retryable error, try next model
+                  break;
+                }
+              }
+            } catch (fetchError) {
+              console.log(`Model ${model} fetch error on attempt ${retryCount + 1}:`, fetchError);
+              retryCount++;
+              if (retryCount < maxRetries) {
+                const delay = Math.pow(1.5, retryCount) * 500; // Faster backoff: 750ms, 1.1s, 1.7s
+                console.log(`Retrying in ${Math.round(delay)}ms...`);
+                await new Promise(resolve => setTimeout(resolve, delay));
+                continue;
+              }
+            }
+          }
+          
+          // If we got a successful response, break out of model loop
+          if (response && response.ok) {
+            break;
+          }
+          
+        } catch (modelError) {
+          console.log(`Model ${model} error:`, modelError);
+          lastError = modelError;
         }
-      } catch (modelError) {
-        console.log(`Model ${model} error:`, modelError);
-        lastError = modelError;
       }
 
       if (!response || !response.ok) {
         console.error('All Gemini models failed. Last error:', lastError);
         console.error('Response status:', response?.status);
-        console.error('Response text:', await response?.text());
+        if (response) {
+          try {
+            const errorText = await response.text();
+            console.error('Response text:', errorText);
+          } catch (e) {
+            console.error('Could not read response text');
+          }
+        }
         return profileData;
       }
 
@@ -2250,16 +2451,32 @@ class LinkedInScraper {
       
       this.isScraping = true;
       
-      // Wait for the page to load (reduced from 3s to 1s)
-      await this.waitForElement('h1', 1000);
+      // Quick page load check with minimal wait
+      console.log('Checking page load...');
+      try {
+        await this.waitForAnyElement([
+          'h1.text-heading-xlarge',
+          '.pv-text-details__left-panel h1',
+          'h1[data-anonymize="person-name"]',
+          '.pv-top-card--list-bullet h1',
+          'h1', // Generic h1 as last resort
+          '.pv-top-card', // Profile card container
+          '.profile-content', // Profile content area
+          'main' // Main content area
+        ], 1500); // Reduced timeout for faster processing
+        console.log('Page loaded successfully');
+      } catch (error) {
+        console.warn('Page load detection failed, but continuing with scraping:', error.message);
+        // Continue with scraping even if page load detection fails
+      }
       
-      // Give minimal time for dynamic content to load (reduced from 2s to 0.5s)
-      await new Promise(resolve => setTimeout(resolve, 500));
+      // Minimal delay for dynamic content (reduced from 500ms to 200ms)
+      await new Promise(resolve => setTimeout(resolve, 200));
 
       console.log('Starting comprehensive profile scraping...');
 
-      // Extract full page HTML for LLM processing
-      const fullPageHtml = this.extractFullPageHtml();
+      // Extract optimized page HTML for LLM processing (faster)
+      const fullPageHtml = this.extractOptimizedPageHtml();
       
       // Scrape all sections in parallel for better performance (keeping for fallback)
       const [
@@ -2335,7 +2552,7 @@ class LinkedInScraper {
         // Add overall timeout for Gemini enhancement
         const geminiPromise = this.enhanceDataWithGemini(this.profileData);
         const timeoutPromise = new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Gemini timeout')), 10000) // 10 second overall timeout
+          setTimeout(() => reject(new Error('Gemini timeout')), 6000) // Reduced to 6 second overall timeout
         );
         
         enhancedData = await Promise.race([geminiPromise, timeoutPromise]);
@@ -2359,7 +2576,8 @@ class LinkedInScraper {
           skills: this.profileData.skills || [],
           totalExperience: this.profileData.basicInfo?.totalExperience || '',
           education_qualification: this.profileData.education || [],
-          geminiEnhanced: false
+          geminiEnhanced: false,
+          geminiError: 'AI enhancement temporarily unavailable. Using basic extraction.'
         };
         return basicEnhanced;
       }
