@@ -296,7 +296,7 @@ const LinkedInScraperPopup = () => {
           experience: data.totalExperience || data.geminiExtracted?.totalExperience || data.basicInfo?.totalExperience || '',
           skills: Array.isArray(data.skills) ? data.skills.join(', ') : (data.geminiExtracted?.skills ? data.geminiExtracted.skills.join(', ') : ''),
           current_company: data.currentCompany || data.geminiExtracted?.currentCompany || data.basicInfo?.currentCompany || '',
-          linkedin_profile: data.profileLink || data.geminiExtracted?.profileLink || data.basicInfo?.profileUrl || data.profileUrl || '',
+          linkedin_profile: data.basicInfo?.profileUrl || data.profileUrl || data.profileLink || data.geminiExtracted?.profileLink || '',
           current_location: data.location || data.geminiExtracted?.location || data.basicInfo?.location || '',
           education_qualification: formatEducationData(educationData)
         });

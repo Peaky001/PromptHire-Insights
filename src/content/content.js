@@ -1160,13 +1160,15 @@ class LinkedInScraper {
       
       const prompt = `You are a LinkedIn profile analyzer. Extract the following information from this cleaned LinkedIn profile HTML:
 
+      CURRENT PAGE URL: ${window.location.href}
+
       LINKEDIN PROFILE HTML:
       ${fullPageHtml}
 
       REQUIRED EXTRACTION:
       1. NAME: Extract the person's full name from the profile header
       2. LOCATION: Extract the person's current location from the profile header
-      3. PROFILE_LINK: Extract the LinkedIn profile URL (current page URL)
+      3. PROFILE_LINK: Use the current page URL provided above (${window.location.href})
       4. CURRENT COMPANY: Extract the company name from the most recent job/experience (the one with "Present" or current date)
       5. CURRENT DESIGNATION: Extract the job title/position from the most recent job/experience
       6. SKILLS: Extract all relevant skills mentioned in the profile (clean, no duplicates)
@@ -1192,7 +1194,7 @@ class LinkedInScraper {
       {
         "name": "Full Name or null",
         "location": "City, Country or null",
-        "profileLink": "https://linkedin.com/in/username or null",
+        "profileLink": "use the current page URL provided above",
         "currentCompany": "company name or null",
         "currentDesignation": "job title or null", 
         "skills": ["skill1", "skill2", "skill3"],
@@ -1341,7 +1343,7 @@ class LinkedInScraper {
           // Override with Gemini-extracted values if they exist
           name: enhancedData.name || profileData.basicInfo?.name || profileData.basicInfo?.fullName || '',
           location: enhancedData.location || profileData.basicInfo?.location || '',
-          profileLink: enhancedData.profileLink || profileData.basicInfo?.profileLink || window.location.href,
+          profileLink: profileData.basicInfo?.profileUrl || window.location.href || enhancedData.profileLink,
           currentCompany: enhancedData.currentCompany || profileData.basicInfo?.currentCompany || '',
           currentDesignation: enhancedData.currentDesignation || profileData.basicInfo?.currentDesignation || '',
           skills: enhancedData.skills || profileData.skills || [],
